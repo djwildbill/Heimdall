@@ -98,7 +98,10 @@
         append: yes
         shell: /bin/bash
         create_home: yes
-        password: '$6$rounds=656000$HeimdallAlpha$Ix6vRrUZ.Djp3eWXbTx5T8pzhjGWkSkeCEJ4C3nG2DyVLIPnOeUuA08OhFSXa7UuycqLfMiGSJDL5TjGLGQng01'
+
+    - name: set temporary first boot password
+      shell: "echo 'heimdall:heimdall' | chpasswd"
+      no_log: true
 
     - name: force Heimdall console password change on first login
       command: chage -d 0 heimdall
@@ -134,6 +137,11 @@
                   Persona: Josh
                   v0.1.0-alpha
           ========================================
+
+          First console login:
+            user: heimdall
+            temporary password: heimdall
+            You will be forced to choose a new password.
 
           Mode control:
             sudo heimdall-mode status
