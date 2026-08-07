@@ -21,7 +21,7 @@ def main():
             s = get("/api/status")
             a = get("/api/activity")
             newest = a[0] if a else {}
-            token = (newest.get("time"), newest.get("kind"))
+            token = (newest.get("time"), newest.get("kind"), newest.get("detail"))
             print(
                 f"\rJosh ONLINE | scan #{s.get('scan_number')} | visible {s.get('observed_networks')} | "
                 f"known {s.get('known_networks')} | protected {s.get('protected_filtered')} | "
@@ -32,11 +32,16 @@ def main():
             if token != seen and newest:
                 print()
                 kind = newest.get("kind", "EVENT")
+                detail = newest.get("detail", "")
                 if kind in {"NEW", "CHANGE"}:
                     msg = "wireless environment changed (identifier redacted)"
+                    detail = ""
                 else:
                     msg = newest.get("message", "")
-                print(f"[{newest.get('time')}] {kind}: {msg}")
+                if kind == "ERROR" and detail:
+                    print(f"[{newest.get('time')}] {kind}: {msg} — {detail}")
+                else:
+                    print(f"[{newest.get('time')}] {kind}: {msg}")
                 seen = token
         except KeyboardInterrupt:
             print("\nWatcher stopped.")
