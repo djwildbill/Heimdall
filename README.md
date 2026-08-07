@@ -49,7 +49,7 @@ Heimdall/
 ```bash
 git clone -b heimdall-dev https://github.com/djwildbill/Heimdall.git
 cd Heimdall
-sudo ./scripts/install-heimdall.sh
+sudo bash scripts/install-heimdall.sh
 ```
 
 The installer backs up the current Pwnagotchi configuration and UI files before installing Heimdall components.
@@ -64,6 +64,12 @@ Then reboot:
 
 ```bash
 sudo reboot
+```
+
+After reboot, validate the installation with:
+
+```bash
+sudo bash scripts/validate-heimdall.sh
 ```
 
 ## Identity
