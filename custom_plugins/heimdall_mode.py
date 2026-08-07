@@ -2,9 +2,10 @@ import json
 import logging
 import os
 import threading
-import time
 import urllib.error
 import urllib.request
+
+from flask import render_template_string
 
 import pwnagotchi.plugins as plugins
 
@@ -78,8 +79,69 @@ class Plugin(plugins.Plugin):
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
 
+    def on_webhook(self, path, request):
+        message = None
+        error = None
+
+        if request.method == "POST":
+            requested = str(request.form.get("mode", "")).strip().lower()
+            if requested not in MODES:
+                error = "Unknown Heimdall mode."
+            elif self._apply_mode(requested):
+                message = "Josh switched to %s mode." % requested.upper()
+            else:
+                error = "Heimdall is not ready to change modes yet."
+
+        current = self._mode or self._read_local_mode() or "unknown"
+        return render_template_string(
+            """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Heimdall Mode Control</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 30px auto; padding: 0 16px; background: #111; color: #eee; }
+    .card { border: 1px solid #444; border-radius: 12px; padding: 20px; margin: 14px 0; background: #1b1b1b; }
+    button { width: 100%; padding: 14px; margin-top: 8px; font-size: 1rem; cursor: pointer; }
+    .active { border: 2px solid #fff; }
+    .ok { padding: 10px; background: #203820; }
+    .err { padding: 10px; background: #4a2020; }
+    small { color: #bbb; }
+  </style>
+</head>
+<body>
+  <h1>Heimdall</h1>
+  <p><strong>Persona:</strong> Josh &nbsp; | &nbsp; <strong>Current mode:</strong> {{ current|upper }}</p>
+  {% if message %}<div class="ok">{{ message }}</div>{% endif %}
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+  {% for name, settings in modes.items() %}
+  <div class="card {% if current == name %}active{% endif %}">
+    <h2>{{ settings.label }} — {{ name|upper }}</h2>
+    <p>{{ settings.description }}</p>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode" value="{{ name }}">
+      <button type="submit">Switch Josh to {{ name|upper }}</button>
+    </form>
+  </div>
+  {% endfor %}
+
+  <p><small>PWN mode may actively interact with wireless networks. Use it only where you have authorization.</small></p>
+  <p><a href="/">Back to Heimdall</a></p>
+</body>
+</html>
+            """,
+            current=current,
+            modes=MODES,
+            message=message,
+            error=error,
+        )
+
     def _control_loop(self):
-        interval = self._int_option("poll_interval", 15)
+        interval = self._int_option("poll_interval", 5)
         while not self._stop_event.is_set():
             try:
                 local_mode = self._read_local_mode()
