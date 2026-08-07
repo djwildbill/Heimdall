@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATE_DIR="/var/lib/heimdall"
+STATE_FILE="$STATE_DIR/bifrost-display.json"
+PHASE="${1:-IDLE}"
+PROGRESS="${2:-0}"
+MESSAGE="${3:-}"
+LABEL="${4:-}"
+
+sudo install -d -m 0755 "$STATE_DIR"
+TMP="$(mktemp)"
+python3 - "$PHASE" "$PROGRESS" "$MESSAGE" "$LABEL" >"$TMP" <<'PY'
+import json,sys,time
+phase,progress,message,label=sys.argv[1:5]
+try: progress=max(0,min(100,int(progress)))
+except Exception: progress=0
+print(json.dumps({
+  'phase': phase.upper(),
+  'progress': progress,
+  'message': message,
+  'label': label,
+  'updated_at': int(time.time()),
+}, indent=2))
+PY
+sudo install -m 0644 "$TMP" "$STATE_FILE"
+rm -f "$TMP"
+
+# Request an immediate UI render when pwnagotchi is active. Failure is harmless;
+# the plugin will render on the next regular display refresh.
+if systemctl is-active --quiet pwnagotchi 2>/dev/null; then
+  sudo pkill -USR1 -f 'pwnagotchi' 2>/dev/null || true
+fi
+
+printf 'Bifrost display: %s %s%% %s\n' "$PHASE" "$PROGRESS" "$MESSAGE"
