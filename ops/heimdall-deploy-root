@@ -18,17 +18,35 @@ if [[ ! -d "$REPO_ROOT/.git" ]]; then
   exit 1
 fi
 
-# Never execute arbitrary repository content as root. Only install known unit files
-# whose services run as the unprivileged deploy user.
+# Install only known Heimdall-managed files as root.
 if [[ -f "$REPO_ROOT/systemd/heimdall-display.service" ]]; then
   install -o root -g root -m 0644 \
     "$REPO_ROOT/systemd/heimdall-display.service" \
     /etc/systemd/system/heimdall-display.service
 fi
 
-mkdir -p /var/lib/heimdall
+if [[ -f "$REPO_ROOT/scripts/heimdall-status" ]]; then
+  install -o root -g root -m 0755 \
+    "$REPO_ROOT/scripts/heimdall-status" \
+    /usr/local/bin/heimdall-status
+fi
+
+mkdir -p /var/lib/heimdall /etc/heimdall
 chown "$DEPLOY_USER":"$DEPLOY_USER" /var/lib/heimdall
 chmod 0755 /var/lib/heimdall
+
+VERSION="unknown"
+[[ -r "$REPO_ROOT/VERSION" ]] && VERSION="$(tr -d '\r\n' < "$REPO_ROOT/VERSION")"
+BUILD="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+cat > /etc/heimdall/release <<EOF
+NAME=Heimdall
+NODE=OVN-002
+PERSONA=Josh
+VERSION=$VERSION
+BUILD=$BUILD
+BRANCH=$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || echo unknown)
+EOF
+chmod 0644 /etc/heimdall/release
 
 systemctl daemon-reload
 
@@ -37,4 +55,4 @@ if systemctl list-unit-files heimdall-display.service >/dev/null 2>&1; then
   systemctl restart heimdall-display.service || true
 fi
 
-echo "Heimdall deploy complete from $REPO_ROOT"
+echo "Heimdall deploy complete: v$VERSION build $BUILD"
