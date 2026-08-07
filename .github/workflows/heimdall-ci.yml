@@ -1,0 +1,55 @@
+name: Heimdall v0.1 CI
+
+on:
+  push:
+    paths:
+      - 'project_heimdall/**'
+      - '.github/workflows/heimdall-ci.yml'
+  pull_request:
+    paths:
+      - 'project_heimdall/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r project_heimdall/requirements.txt
+
+      - name: Compile
+        run: python -m py_compile project_heimdall/heimdall.py
+
+      - name: Import and initialize database
+        run: |
+          cd project_heimdall
+          python - <<'PY'
+          import heimdall
+          heimdall.ensure_dirs()
+          heimdall.init_db()
+          print(heimdall.system_status()['app'], heimdall.VERSION)
+          PY
+
+      - name: Exercise demo inventory and session export
+        run: |
+          cd project_heimdall
+          python - <<'PY'
+          import heimdall
+          heimdall.ensure_dirs()
+          heimdall.init_db()
+          observations = heimdall.demo_wifi_inventory()
+          assert len(observations) >= 1
+          heimdall.process_inventory(observations)
+          assert heimdall.runtime['inventory_count'] == len(observations)
+          path = heimdall.export_session()
+          assert path.exists()
+          assert heimdall.runtime['known_count'] >= 1
+          print('Heimdall demo validation passed:', path)
+          PY
