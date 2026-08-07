@@ -7,7 +7,6 @@ Passwords are never stored here or in Git; only a local salted hash is used.
 from __future__ import annotations
 
 import json
-import os
 import secrets
 import subprocess
 import time
@@ -123,12 +122,15 @@ def maintenance_action(action: str):
     if not authed():
         return jsonify({"ok": False, "error": "Maintenance authentication required."}), 401
 
-    # Node power actions require the password again even during an active session.
     if action in {"reboot", "shutdown"}:
         body = request.get_json(silent=True) or {}
         password = str(body.get("password", ""))
+        confirm = str(body.get("confirm", "")).strip().upper()
+        required = "REBOOT" if action == "reboot" else "SHUTDOWN"
         if not valid_password(password):
             return jsonify({"ok": False, "error": "Password confirmation required for node power action."}), 401
+        if confirm != required:
+            return jsonify({"ok": False, "error": f"Type {required} to confirm this action."}), 400
 
     output, code = run_helper(action)
     return jsonify({"ok": code == 200, "action": action, "output": output}), code
