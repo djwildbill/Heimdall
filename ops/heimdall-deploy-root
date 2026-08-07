@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONF=/etc/heimdall/deploy.conf
+if [[ ! -r "$CONF" ]]; then
+  echo "Heimdall deploy config missing: $CONF" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$CONF"
+
+: "${REPO_ROOT:?REPO_ROOT missing}"
+: "${DEPLOY_USER:?DEPLOY_USER missing}"
+
+if [[ ! -d "$REPO_ROOT/.git" ]]; then
+  echo "Not a Heimdall git checkout: $REPO_ROOT" >&2
+  exit 1
+fi
+
+# Never execute arbitrary repository content as root. Only install known unit files
+# whose services run as the unprivileged deploy user.
+if [[ -f "$REPO_ROOT/systemd/heimdall-display.service" ]]; then
+  install -o root -g root -m 0644 \
+    "$REPO_ROOT/systemd/heimdall-display.service" \
+    /etc/systemd/system/heimdall-display.service
+fi
+
+mkdir -p /var/lib/heimdall
+chown "$DEPLOY_USER":"$DEPLOY_USER" /var/lib/heimdall
+chmod 0755 /var/lib/heimdall
+
+systemctl daemon-reload
+
+if systemctl list-unit-files heimdall-display.service >/dev/null 2>&1; then
+  systemctl enable heimdall-display.service >/dev/null 2>&1 || true
+  systemctl restart heimdall-display.service || true
+fi
+
+echo "Heimdall deploy complete from $REPO_ROOT"
