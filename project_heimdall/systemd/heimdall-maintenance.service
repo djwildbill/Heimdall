@@ -7,7 +7,7 @@ Requires=heimdall.service
 Type=simple
 User=nabzaf
 WorkingDirectory=/home/nabzaf/Heimdall/project_heimdall
-ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/maintenance_auth.py
+ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/maintenance_auth_v2.py
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
