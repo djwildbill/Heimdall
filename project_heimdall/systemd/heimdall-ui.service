@@ -1,13 +1,13 @@
 [Unit]
 Description=Project Odin Heimdall Control Center UI
-After=heimdall.service network-online.target
-Requires=heimdall.service
+After=heimdall.service heimdall-maintenance.service network-online.target
+Requires=heimdall.service heimdall-maintenance.service
 
 [Service]
 Type=simple
 User=nabzaf
 WorkingDirectory=/home/nabzaf/Heimdall/project_heimdall
-ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/ui_control.py
+ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/ui_control_v2_launcher.py
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
