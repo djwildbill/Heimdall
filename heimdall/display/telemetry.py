@@ -1,8 +1,8 @@
 """Telemetry helpers for the Heimdall e-paper UI.
 
-Wireless counters are read from /var/lib/heimdall/wireless.json.  The wireless
-engine will own that file once it is installed; until then the UI safely shows
-zero/unknown values instead of failing.
+Wireless counters are read from /var/lib/heimdall/wireless.json. The wireless
+engine will own that file once installed. Power data comes from the official
+PiSugar Power Manager unix socket when available.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ import json
 import os
 import subprocess
 import time
+
+from heimdall.power import status as power_status
 
 WIRELESS_STATE = "/var/lib/heimdall/wireless.json"
 MODE_FILE = "/var/lib/heimdall/mode"
@@ -89,7 +91,12 @@ def wifi_up() -> bool:
 
 
 def battery() -> str:
-    """Return battery percentage when a battery provider has populated health.json."""
+    power = power_status()
+    value = power.get("battery_percent")
+    if isinstance(value, (int, float)):
+        return f"{max(0, min(100, round(value)))}%"
+
+    # Compatibility fallback for health providers that populate health.json.
     health = _read_json(HEALTH_STATE)
     value = health.get("battery_percent")
     if isinstance(value, (int, float)):
@@ -110,6 +117,7 @@ def wireless() -> dict:
 
 
 def snapshot() -> dict:
+    power = power_status()
     return {
         "mode": mode(),
         "temperature": temperature(),
@@ -117,6 +125,7 @@ def snapshot() -> dict:
         "ip": ip_address(),
         "wifi": "UP" if wifi_up() else "DOWN",
         "battery": battery(),
+        "charging": power.get("charging"),
         "wireless": wireless(),
         "timestamp": time.time(),
     }
