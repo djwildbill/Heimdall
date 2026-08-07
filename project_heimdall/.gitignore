@@ -1,0 +1,9 @@
+.venv/
+config.json
+data/
+*.db
+*.log
+__pycache__/
+*.pyc
+protected_networks.txt
+local-privacy*
