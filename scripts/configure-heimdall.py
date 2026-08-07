@@ -8,11 +8,17 @@ CONFIG = pathlib.Path('/etc/pwnagotchi/config.toml')
 SETTINGS = {
     'main.name': '"heimdall"',
     'main.custom_plugins': '"/usr/local/share/pwnagotchi/custom-plugins"',
-    'personality.deauth': 'false',
-    'personality.associate': 'false',
-    'personality.advertise': 'false',
+    # Preserve original Pwnagotchi-style active behavior as Heimdall's PWN mode.
+    'personality.deauth': 'true',
+    'personality.associate': 'true',
+    'personality.advertise': 'true',
     'main.plugins.grid.enabled': 'false',
     'main.plugins.grid.report': 'false',
+    'main.plugins.heimdall-mode.enabled': 'true',
+    'main.plugins.heimdall-mode.default_mode': '"pwn"',
+    'main.plugins.heimdall-mode.mode_path': '"/var/lib/heimdall/mode"',
+    'main.plugins.heimdall-mode.poll_interval': '15',
+    'main.plugins.heimdall-mode.timeout': '5',
     'main.plugins.heimdall-heartbeat.enabled': 'true',
     'main.plugins.heimdall-heartbeat.node_name': '"heimdall-01"',
     'main.plugins.heimdall-heartbeat.interval': '60',
@@ -25,6 +31,8 @@ SETTINGS = {
 }
 
 OPTIONAL_DEFAULTS = {
+    'main.plugins.heimdall-mode.control_endpoint': '""',
+    'main.plugins.heimdall-mode.token': '""',
     'main.plugins.heimdall-heartbeat.endpoint': '""',
     'main.plugins.heimdall-heartbeat.token': '""',
 }
@@ -55,8 +63,10 @@ def main():
             text = set_key(text, key, value)
 
     CONFIG.write_text(text, encoding='utf-8')
-    print('Heimdall configuration applied with passive defensive defaults.')
-    print('Review the Odin heartbeat endpoint/token before enabling remote reporting.')
+    print('Heimdall configuration applied.')
+    print('Default mode: PWN (original active behavior).')
+    print('Available modes: pwn, sentinel, recon, maintenance.')
+    print('Use active modes only in environments where you have authorization.')
     return 0
 
 
