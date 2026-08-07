@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Project Odin — Bifrost bootstrap for Heimdall
+# Installs Tailscale, joins the tailnet interactively, and optionally exposes
+# the Heimdall dashboard only through Tailscale Serve.
+
+APP_DIR="${HEIMDALL_APP_DIR:-$HOME/Heimdall/project_heimdall}"
+CONFIG="$APP_DIR/config.json"
+DASHBOARD_PORT="${HEIMDALL_PORT:-8080}"
+
+log(){ printf '[BIFROST] %s\n' "$*"; }
+fail(){ printf '[BIFROST] ERROR: %s\n' "$*" >&2; exit 1; }
+
+command -v curl >/dev/null 2>&1 || fail "curl is required"
+
+log "Remote-management bootstrap starting"
+log "This does not expose Heimdall publicly. Tailscale Funnel is not used."
+
+if ! command -v tailscale >/dev/null 2>&1; then
+  log "Installing Tailscale using the official Linux installer..."
+  curl -fsSL https://tailscale.com/install.sh | sh
+else
+  log "Tailscale already installed"
+fi
+
+sudo systemctl enable --now tailscaled
+
+if ! tailscale status >/dev/null 2>&1; then
+  log "Joining tailnet. Follow the authentication URL printed below."
+  sudo tailscale up --accept-dns=false
+else
+  log "Tailscale daemon is responding"
+fi
+
+TS_IP="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+TS_HOST="$(tailscale status --self --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("Self") or {}).get("DNSName","").rstrip("."))' 2>/dev/null || true)"
+
+if [[ -z "$TS_IP" ]]; then
+  fail "No Tailscale IPv4 address is available yet. Complete authentication, then rerun this script."
+fi
+
+log "Bifrost address: $TS_IP"
+[[ -n "$TS_HOST" ]] && log "Bifrost DNS: $TS_HOST"
+
+# Restrict the Flask dashboard backend to localhost so venue/LAN peers cannot
+# reach it directly. Tailscale Serve will proxy to localhost from the tailnet.
+if [[ -f "$CONFIG" ]]; then
+  log "Restricting Heimdall dashboard backend to localhost"
+  python3 - "$CONFIG" <<'PY'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1])
+d=json.loads(p.read_text())
+d['dashboard_host']='127.0.0.1'
+p.write_text(json.dumps(d, indent=2)+"\n")
+PY
+else
+  log "No config.json yet; dashboard bind will be restricted after Heimdall creates it"
+fi
+
+if systemctl list-unit-files 2>/dev/null | grep -q '^heimdall.service'; then
+  sudo systemctl restart heimdall || true
+fi
+
+log "Configuring private dashboard through Tailscale Serve"
+sudo tailscale serve --bg "http://127.0.0.1:${DASHBOARD_PORT}"
+
+log "Ensuring standard SSH daemon is enabled"
+sudo systemctl enable --now ssh
+
+cat <<EOF
+
+BIFROST READY
+=============
+Tailscale IP : ${TS_IP}
+Tailscale DNS: ${TS_HOST:-not available}
+SSH          : ssh ${USER}@${TS_IP}
+Dashboard    : run 'tailscale serve status' to view the private HTTPS URL
+
+Security model:
+- Heimdall dashboard backend binds to localhost.
+- Tailscale Serve exposes it only inside the tailnet.
+- No Tailscale Funnel/public exposure is configured.
+- SSH can be reached using Josh's Tailscale IP subject to your tailnet ACLs.
+EOF
