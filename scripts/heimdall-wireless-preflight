@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -u
+
+printf 'Heimdall wireless preflight\n'
+printf '===========================\n'
+printf 'Node      : OVN-002\n'
+printf 'Hostname  : %s\n' "$(hostname 2>/dev/null || echo unknown)"
+printf 'Kernel    : %s\n' "$(uname -r 2>/dev/null || echo unknown)"
+printf 'Arch      : %s\n' "$(uname -m 2>/dev/null || echo unknown)"
+
+if python3 -c 'import pwnagotchi' >/dev/null 2>&1; then
+  printf 'Pwn runtime: PRESENT\n'
+  python3 - <<'PY'
+import pwnagotchi
+print('Pwn version:', getattr(pwnagotchi, '__version__', 'unknown'))
+PY
+else
+  printf 'Pwn runtime: MISSING\n'
+fi
+
+if command -v bettercap >/dev/null 2>&1; then
+  printf 'Bettercap  : PRESENT\n'
+else
+  printf 'Bettercap  : MISSING\n'
+fi
+
+printf '\nWireless interfaces:\n'
+if command -v iw >/dev/null 2>&1; then
+  iw dev 2>/dev/null || true
+else
+  ip -brief link 2>/dev/null || true
+fi
+
+printf '\nMonitor-mode capability reported by iw:\n'
+if command -v iw >/dev/null 2>&1; then
+  if iw list 2>/dev/null | grep -A20 'Supported interface modes' | grep -q 'monitor'; then
+    printf 'Monitor    : REPORTED SUPPORTED\n'
+  else
+    printf 'Monitor    : NOT REPORTED\n'
+  fi
+else
+  printf 'Monitor    : UNKNOWN (iw not installed)\n'
+fi
+
+printf '\nNexmon / monitor clues:\n'
+if dmesg 2>/dev/null | grep -qi nexmon; then
+  printf 'Nexmon     : detected in kernel log\n'
+else
+  printf 'Nexmon     : not detected in readable kernel log\n'
+fi
+
+if systemctl list-unit-files pwnagotchi.service >/dev/null 2>&1; then
+  printf 'Service    : %s\n' "$(systemctl is-active pwnagotchi.service 2>/dev/null || true)"
+else
+  printf 'Service    : not installed\n'
+fi
+
+printf '\nResult:\n'
+if python3 -c 'import pwnagotchi' >/dev/null 2>&1 && command -v bettercap >/dev/null 2>&1; then
+  printf 'Runtime pieces are present. Radio/monitor support still must pass before field use.\n'
+else
+  printf 'Compatible Pwnagotchi runtime is not fully installed yet.\n'
+fi
