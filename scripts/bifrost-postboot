@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATE_HELPER="/usr/local/bin/bifrost-display-state"
+MARKER="/var/lib/heimdall/pending-update-version"
+
+[[ -f "$MARKER" ]] || exit 0
+VERSION="$(cat "$MARKER" 2>/dev/null || echo unknown)"
+
+if [[ -x "$STATE_HELPER" ]]; then
+  "$STATE_HELPER" RETURNED 100 "Build $VERSION ready" "Returned from Bifrost" || true
+else
+  install -d -m 0755 /var/lib/heimdall
+  python3 - "$VERSION" >/var/lib/heimdall/bifrost-display.json <<'PY'
+import json,sys,time
+print(json.dumps({'phase':'RETURNED','progress':100,'message':f'Build {sys.argv[1]} ready','label':'Returned from Bifrost','updated_at':int(time.time())}, indent=2))
+PY
+fi
+
+# Leave the welcome frame up long enough to be noticed, then restore normal Josh UI.
+sleep 20
+if [[ -x "$STATE_HELPER" ]]; then
+  "$STATE_HELPER" IDLE 0 "" "" || true
+else
+  printf '{"phase":"IDLE","progress":0}\n' >/var/lib/heimdall/bifrost-display.json
+fi
+rm -f "$MARKER"
