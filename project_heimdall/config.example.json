@@ -1,0 +1,16 @@
+{
+  "node_name": "OVN-002",
+  "site_name": "Authorized Test Site",
+  "authorized_scope": true,
+  "scan_interval_seconds": 10,
+  "dashboard_host": "0.0.0.0",
+  "dashboard_port": 8080,
+  "privacy_mode": true,
+  "protected_networks": [],
+  "protected_bssids": [],
+  "protected_action": "exclude",
+  "export_raw_identifiers": false,
+  "new_network_alerts": true,
+  "signal_change_alert_percent": 20,
+  "session_export_interval_seconds": 60
+}
