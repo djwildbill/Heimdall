@@ -1,0 +1,13 @@
+# Project Heimdall -> Odin heartbeat plugin
+# Copy the relevant values into /etc/pwnagotchi/config.toml.
+
+main.custom_plugins = "/usr/local/share/pwnagotchi/custom-plugins"
+
+main.plugins.heimdall-heartbeat.enabled = true
+main.plugins.heimdall-heartbeat.node_name = "heimdall-01"
+main.plugins.heimdall-heartbeat.endpoint = "http://ODIN-IP:PORT/api/v1/heimdall/heartbeat"
+main.plugins.heimdall-heartbeat.token = "CHANGE_ME"
+main.plugins.heimdall-heartbeat.interval = 60
+main.plugins.heimdall-heartbeat.timeout = 5
+main.plugins.heimdall-heartbeat.interface = "wlan0"
+main.plugins.heimdall-heartbeat.queue_path = "/var/lib/heimdall/heartbeat-queue.jsonl"
