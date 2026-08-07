@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="${HEIMDALL_REPO:-$HOME/Heimdall}"
+BRANCH="${HEIMDALL_BRANCH:-heimdall-dev}"
+STATE="$REPO/scripts/bifrost-display-state"
+
+say(){ printf '[UPDATE] %s\n' "$*"; }
+show(){ bash "$STATE" "$1" "$2" "${3:-}" "${4:-}" || true; sleep "${5:-2}"; }
+fail(){ show FAILED 0 "$1"; printf '[UPDATE] ERROR: %s\n' "$1" >&2; exit 1; }
+
+[[ -d "$REPO/.git" ]] || fail "Heimdall repository not found: $REPO"
+cd "$REPO"
+
+# Managed remote updates must never silently overwrite local edits.
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  fail "Tracked local changes detected; update aborted safely"
+fi
+
+show CONNECTING 5 "Opening secure path" "Opening Bifrost"
+say "Fetching $BRANCH"
+git fetch origin "$BRANCH" || fail "Could not fetch update"
+
+LOCAL="$(git rev-parse HEAD)"
+REMOTE="$(git rev-parse "origin/$BRANCH")"
+if [[ "$LOCAL" == "$REMOTE" ]]; then
+  show VERIFYING 35 "Already current" "Checking runes"
+else
+  show DOWNLOADING 20 "Update found" "Crossing Bifrost"
+  # Require fast-forward only. Divergence is a human-review condition.
+  git merge-base --is-ancestor "$LOCAL" "$REMOTE" || fail "Branch diverged; manual review required"
+  git merge --ff-only "origin/$BRANCH" || fail "Fast-forward update failed"
+fi
+
+show VERIFYING 50 "Verifying files" "Reading the runes"
+python3 -m compileall -q custom_plugins scripts 2>/dev/null || fail "Python validation failed"
+
+if [[ -f project_heimdall/requirements.txt && -x project_heimdall/.venv/bin/pip ]]; then
+  show INSTALLING 65 "Refreshing Heimdall" "Forging update"
+  project_heimdall/.venv/bin/pip install -q -r project_heimdall/requirements.txt || fail "Dependency install failed"
+fi
+
+# Deploy custom plugins/config using the existing project deploy path when present.
+show INSTALLING 78 "Deploying services" "Forging update"
+if [[ -x ops/heimdall-deploy-root ]]; then
+  sudo ops/heimdall-deploy-root || fail "Heimdall deploy failed"
+fi
+
+# Preserve a boot marker so postboot can replace the persistent reboot image.
+sudo install -d -m 0755 /var/lib/heimdall
+printf '%s\n' "$(git rev-parse --short HEAD)" | sudo tee /var/lib/heimdall/pending-update-version >/dev/null
+
+show REBOOTING 100 "Applying update" "Between Worlds" 4
+say "Rebooting Josh"
+sudo systemctl reboot
