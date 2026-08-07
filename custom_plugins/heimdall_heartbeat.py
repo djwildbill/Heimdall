@@ -64,6 +64,7 @@ class Plugin(plugins.Plugin):
             "persona": "Josh",
             "node": self.options.get("node_name") or socket.gethostname(),
             "role": "wireless-intelligence",
+            "mode": self._read_mode(),
             "timestamp": int(time.time()),
             "uptime_seconds": self._read_uptime(),
             "temperature_c": self._read_temperature(),
@@ -122,6 +123,14 @@ class Plugin(plugins.Plugin):
                 queue_file.write(json.dumps(payload, separators=(",", ":")) + "\n")
         except OSError as exc:
             logging.warning("[heimdall-heartbeat] could not queue heartbeat: %s", exc)
+
+    @staticmethod
+    def _read_mode():
+        try:
+            with open("/var/lib/heimdall/mode", "r", encoding="utf-8") as mode_file:
+                return mode_file.read().strip().lower() or "unknown"
+        except OSError:
+            return "unknown"
 
     @staticmethod
     def _read_uptime():
