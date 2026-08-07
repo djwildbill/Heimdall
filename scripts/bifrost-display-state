@@ -26,10 +26,6 @@ PY
 sudo install -m 0644 "$TMP" "$STATE_FILE"
 rm -f "$TMP"
 
-# Request an immediate UI render when pwnagotchi is active. Failure is harmless;
-# the plugin will render on the next regular display refresh.
-if systemctl is-active --quiet pwnagotchi 2>/dev/null; then
-  sudo pkill -USR1 -f 'pwnagotchi' 2>/dev/null || true
-fi
-
+# heimdall_bifrost_display watches this file and safely forces a render when the
+# state changes. No signals or process restarts are required.
 printf 'Bifrost display: %s %s%% %s\n' "$PHASE" "$PROGRESS" "$MESSAGE"
