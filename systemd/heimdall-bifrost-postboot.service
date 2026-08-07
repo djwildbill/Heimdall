@@ -1,0 +1,12 @@
+[Unit]
+Description=Project Odin Heimdall Bifrost post-boot display
+After=network-online.target pwnagotchi.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/bifrost-postboot
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
