@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODE_FILE="/var/lib/heimdall/mode"
+VALID="pwn sentinel recon maintenance"
+
+usage() {
+  echo "Usage: heimdall-mode [pwn|sentinel|recon|maintenance|status]"
+}
+
+if [[ $# -ne 1 ]]; then
+  usage
+  exit 1
+fi
+
+case "$1" in
+  status)
+    if [[ -f "$MODE_FILE" ]]; then
+      cat "$MODE_FILE"
+    else
+      echo "unknown"
+    fi
+    ;;
+  pwn|sentinel|recon|maintenance)
+    if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+      echo "Mode changes require root. Use: sudo heimdall-mode $1" >&2
+      exit 1
+    fi
+    mkdir -p "$(dirname "$MODE_FILE")"
+    printf '%s\n' "$1" > "$MODE_FILE"
+    chmod 0644 "$MODE_FILE"
+    echo "Heimdall requested mode: $1"
+    echo "Josh will apply it within a few seconds."
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
