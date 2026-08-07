@@ -11,9 +11,25 @@ personality.deauth = true
 personality.associate = true
 personality.advertise = true
 
+# -----------------------------------------------------------------------------
+# Heimdall privacy / protected-network policy
+# -----------------------------------------------------------------------------
+# Add every trusted/private SSID and/or BSSID here. These networks are excluded
+# from active interaction by the inherited Pwnagotchi engine.
+# Examples only -- replace with your own values in the local config:
+# main.whitelist = ["Asgard", "AA:BB:CC:DD:EE:FF"]
+main.whitelist = []
+
 # Keep PwnGrid disabled for Odin deployments unless you intentionally opt in.
 main.plugins.grid.enabled = false
 main.plugins.grid.report = false
+
+# Defense in depth: if grid reporting is ever intentionally enabled, entries in
+# this list must still be excluded from grid reporting. Keep this synchronized
+# with main.whitelist for trusted/private networks.
+# Example:
+# main.plugins.grid.exclude = ["Asgard", "AA:BB:CC:DD:EE:FF"]
+main.plugins.grid.exclude = []
 
 # Runtime mode controller.
 # Modes: pwn, sentinel, recon, maintenance
