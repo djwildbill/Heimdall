@@ -1,0 +1,166 @@
+---
+- hosts:
+    - 127.0.0.1
+  become: yes
+  vars:
+    heimdall:
+      repo: "https://github.com/djwildbill/Heimdall.git"
+      branch: "heimdall-dev"
+      version: "0.1.0-alpha"
+      hostname: "heimdall"
+
+  tasks:
+    - name: clone Heimdall source
+      git:
+        repo: "{{ heimdall.repo }}"
+        dest: /usr/local/src/heimdall
+        version: "{{ heimdall.branch }}"
+        force: yes
+
+    - name: force-install Heimdall Python package over upstream engine
+      command: python3 -m pip install --no-cache-dir --no-deps --force-reinstall /usr/local/src/heimdall
+
+    - name: create Heimdall plugin directory
+      file:
+        path: /usr/local/share/pwnagotchi/custom-plugins
+        state: directory
+        mode: '0755'
+
+    - name: install Heimdall plugins
+      copy:
+        src: "{{ item }}"
+        dest: "/usr/local/share/pwnagotchi/custom-plugins/{{ item | basename }}"
+        remote_src: yes
+        mode: '0644'
+      with_items:
+        - /usr/local/src/heimdall/custom_plugins/heimdall_heartbeat.py
+        - /usr/local/src/heimdall/custom_plugins/heimdall_health.py
+        - /usr/local/src/heimdall/custom_plugins/heimdall_mode.py
+
+    - name: install Heimdall configuration
+      copy:
+        src: /usr/local/src/heimdall/config/heimdall.example.toml
+        dest: /etc/pwnagotchi/config.toml
+        remote_src: yes
+        mode: '0600'
+
+    - name: create Heimdall state directory
+      file:
+        path: /var/lib/heimdall
+        state: directory
+        mode: '0755'
+
+    - name: set initial Heimdall mode
+      copy:
+        dest: /var/lib/heimdall/mode
+        content: "pwn\n"
+        mode: '0644'
+
+    - name: install local mode command
+      copy:
+        src: /usr/local/src/heimdall/scripts/heimdall-mode
+        dest: /usr/local/bin/heimdall-mode
+        remote_src: yes
+        mode: '0755'
+
+    - name: install first boot wizard
+      copy:
+        src: /usr/local/src/heimdall/scripts/heimdall-firstboot
+        dest: /usr/local/bin/heimdall-firstboot
+        remote_src: yes
+        mode: '0755'
+
+    - name: set Heimdall hostname
+      hostname:
+        name: heimdall
+
+    - name: set Heimdall hosts entry
+      lineinfile:
+        dest: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        line: '127.0.1.1\theimdall'
+        state: present
+
+    - name: write Heimdall release identity
+      copy:
+        dest: /etc/heimdall-release
+        mode: '0644'
+        content: |
+          NAME=Heimdall
+          VERSION=0.1.0-alpha
+          PERSONA=Josh
+          ROLE=Wireless Intelligence
+
+    - name: create Heimdall console user
+      user:
+        name: heimdall
+        groups: sudo
+        append: yes
+        shell: /bin/bash
+        create_home: yes
+        password: '$6$rounds=656000$HeimdallAlpha$Ix6vRrUZ.Djp3eWXbTx5T8pzhjGWkSkeCEJ4C3nG2DyVLIPnOeUuA08OhFSXa7UuycqLfMiGSJDL5TjGLGQng01'
+
+    - name: force Heimdall console password change on first login
+      command: chage -d 0 heimdall
+
+    - name: allow first boot wizard privileged setup commands
+      copy:
+        dest: /etc/sudoers.d/heimdall-firstboot
+        mode: '0440'
+        content: |
+          heimdall ALL=(ALL) NOPASSWD: /usr/bin/python3, /usr/bin/tee, /usr/sbin/reboot, /bin/systemctl, /usr/bin/systemctl
+
+    - name: launch Heimdall wizard on first interactive login
+      blockinfile:
+        path: /home/heimdall/.profile
+        owner: heimdall
+        group: heimdall
+        mode: '0644'
+        marker: '# {mark} HEIMDALL FIRSTBOOT'
+        block: |
+          if [ -t 0 ] && [ ! -f "$HOME/.heimdall-firstboot-complete" ]; then
+              /usr/local/bin/heimdall-firstboot
+          fi
+
+    - name: replace MOTD with Heimdall identity
+      copy:
+        dest: /etc/motd
+        mode: '0644'
+        content: |
+          ========================================
+                         HEIMDALL
+                  Guardian of the Bifrost
+
+                  Persona: Josh
+                  v0.1.0-alpha
+          ========================================
+
+          Mode control:
+            sudo heimdall-mode status
+            sudo heimdall-mode pwn
+            sudo heimdall-mode sentinel
+            sudo heimdall-mode recon
+            sudo heimdall-mode maintenance
+
+          Web control:
+            /plugins/heimdall_mode
+
+    - name: disable PwnGrid peer service by default
+      systemd:
+        name: pwngrid-peer.service
+        enabled: no
+        state: stopped
+      ignore_errors: yes
+
+    - name: enable SSH
+      systemd:
+        name: ssh
+        enabled: yes
+        state: stopped
+
+    - name: clean generated SSH host keys for first boot regeneration
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_fileglob:
+        - /etc/ssh/ssh_host_*
