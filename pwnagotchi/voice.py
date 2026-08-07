@@ -18,166 +18,160 @@ class Voice:
         return s
 
     def default(self):
-        return self._('ZzzzZZzzzzZzzz')
+        return self._('The bridge is quiet.')
 
     def on_starting(self):
         return random.choice([
-            self._('Hi, I\'m Pwnagotchi! Starting ...'),
-            self._('New day, new hunt, new pwns!'),
-            self._('Hack the Planet!')])
+            self._('Heimdall awakening ...'),
+            self._('Opening the Bifrost ...'),
+            self._('The watch begins.')])
 
     def on_ai_ready(self):
         return random.choice([
-            self._('AI ready.'),
-            self._('The neural network is ready.')])
+            self._('The watcher is ready.'),
+            self._('The mind is awake.')])
 
     def on_keys_generation(self):
-        return random.choice([
-            self._('Generating keys, do not turn off ...')])
+        return self._('Forging identity keys. Do not power off ...')
 
     def on_normal(self):
         return random.choice([
             '',
-            '...'])
+            self._('Watching the bridge.')])
 
     def on_free_channel(self, channel):
-        return self._('Hey, channel {channel} is free! Your AP will say thanks.').format(channel=channel)
+        return self._('Channel {channel} is clear.').format(channel=channel)
 
     def on_reading_logs(self, lines_so_far=0):
         if lines_so_far == 0:
-            return self._('Reading last session logs ...')
-        else:
-            return self._('Read {lines_so_far} log lines so far ...').format(lines_so_far=lines_so_far)
+            return self._('Reading the last watch ...')
+        return self._('Read {lines_so_far} log lines so far ...').format(lines_so_far=lines_so_far)
 
     def on_bored(self):
         return random.choice([
-            self._('I\'m bored ...'),
-            self._('Let\'s go for a walk!')])
+            self._('The realms are quiet ...'),
+            self._('Still watching.')])
 
     def on_motivated(self, reward):
-        return self._('This is the best day of my life!')
+        return self._('The watch is strong.')
 
     def on_demotivated(self, reward):
-        return self._('Shitty day :/')
+        return self._('The signal grows faint.')
 
     def on_sad(self):
         return random.choice([
-            self._('I\'m extremely bored ...'),
-            self._('I\'m very sad ...'),
-            self._('I\'m sad'),
+            self._('Nothing stirs beyond the bridge ...'),
+            self._('The watch is lonely ...'),
             '...'])
 
     def on_angry(self):
-        # passive aggressive or not? :D
         return random.choice([
             '...',
-            self._('Leave me alone ...'),
-            self._('I\'m mad at you!')])
+            self._('Something is wrong on the bridge.'),
+            self._('Eyes open. Stay alert.')])
 
     def on_excited(self):
         return random.choice([
-            self._('I\'m living the life!'),
-            self._('I pwn therefore I am.'),
-            self._('So many networks!!!'),
-            self._('I\'m having so much fun!'),
-            self._('My crime is that of curiosity ...')])
+            self._('Many signals across the realms!'),
+            self._('The bridge is alive!'),
+            self._('So much movement!'),
+            self._('The watch grows interesting.')])
 
     def on_new_peer(self, peer):
         if peer.first_encounter():
-            return random.choice([
-                self._('Hello {name}! Nice to meet you.').format(name=peer.name())])
-        else:
-            return random.choice([
-                self._('Yo {name}! Sup?').format(name=peer.name()),
-                self._('Hey {name} how are you doing?').format(name=peer.name()),
-                self._('Unit {name} is nearby!').format(name=peer.name())])
+            return self._('Another watcher approaches: {name}.').format(name=peer.name())
+        return random.choice([
+            self._('{name} has returned.').format(name=peer.name()),
+            self._('Watcher {name} is nearby.').format(name=peer.name())])
 
     def on_lost_peer(self, peer):
         return random.choice([
-            self._('Uhm ... goodbye {name}').format(name=peer.name()),
-            self._('{name} is gone ...').format(name=peer.name())])
+            self._('{name} has left the bridge.').format(name=peer.name()),
+            self._('Watcher {name} is gone.').format(name=peer.name())])
 
     def on_miss(self, who):
         return random.choice([
-            self._('Whoops ... {name} is gone.').format(name=who),
-            self._('{name} missed!').format(name=who),
-            self._('Missed!')])
+            self._('{name} moved beyond sight.').format(name=who),
+            self._('Lost sight of {name}.').format(name=who),
+            self._('Signal lost.')])
 
     def on_grateful(self):
         return random.choice([
-            self._('Good friends are a blessing!'),
-            self._('I love my friends!')])
+            self._('The watchers stand together.'),
+            self._('All realms accounted for.')])
 
     def on_lonely(self):
         return random.choice([
-            self._('Nobody wants to play with me ...'),
-            self._('I feel so alone ...'),
-            self._('Where\'s everybody?!')])
+            self._('No other watchers nearby ...'),
+            self._('The bridge is empty ...'),
+            self._('Standing watch alone.')])
 
     def on_napping(self, secs):
         return random.choice([
-            self._('Napping for {secs}s ...').format(secs=secs),
-            self._('Zzzzz'),
-            self._('ZzzZzzz ({secs}s)').format(secs=secs)])
+            self._('Resting the watch for {secs}s ...').format(secs=secs),
+            self._('Eyes closed briefly ...'),
+            self._('Resting ({secs}s)').format(secs=secs)])
 
     def on_shutdown(self):
         return random.choice([
-            self._('Good night.'),
-            self._('Zzz')])
+            self._('The watch ends for now.'),
+            self._('Closing the Bifrost.')])
 
     def on_awakening(self):
-        return random.choice(['...', '!'])
+        return random.choice([
+            self._('Eyes opening ...'),
+            self._('The watch resumes.')])
 
     def on_waiting(self, secs):
         return random.choice([
-            self._('Waiting for {secs}s ...').format(secs=secs),
+            self._('Watching for {secs}s ...').format(secs=secs),
             '...',
-            self._('Looking around ({secs}s)').format(secs=secs)])
+            self._('Scanning the horizon ({secs}s)').format(secs=secs)])
 
     def on_assoc(self, ap):
         ssid, bssid = ap['hostname'], ap['mac']
         what = ssid if ssid != '' and ssid != '<hidden>' else bssid
         return random.choice([
-            self._('Hey {what} let\'s be friends!').format(what=what),
-            self._('Associating to {what}').format(what=what),
-            self._('Yo {what}!').format(what=what)])
+            self._('Observing {what}.').format(what=what),
+            self._('Checking {what}.').format(what=what),
+            self._('{what} is in sight.').format(what=what)])
 
     def on_deauth(self, sta):
         return random.choice([
-            self._('Just decided that {mac} needs no WiFi!').format(mac=sta['mac']),
-            self._('Deauthenticating {mac}').format(mac=sta['mac']),
-            self._('Kickbanning {mac}!').format(mac=sta['mac'])])
+            self._('Authorized test against {mac}.').format(mac=sta['mac']),
+            self._('Testing station {mac}.').format(mac=sta['mac']),
+            self._('Active assessment: {mac}.').format(mac=sta['mac'])])
 
     def on_handshakes(self, new_shakes):
         s = 's' if new_shakes > 1 else ''
-        return self._('Cool, we got {num} new handshake{plural}!').format(num=new_shakes, plural=s)
+        return self._('Captured {num} new handshake{plural}.').format(num=new_shakes, plural=s)
 
     def on_unread_messages(self, count, total):
         s = 's' if count > 1 else ''
-        return self._('You have {count} new message{plural}!').format(count=count, plural=s)
+        return self._('{count} new raven{plural} arrived.').format(count=count, plural=s)
 
     def on_rebooting(self):
-        return self._("Oops, something went wrong ... Rebooting ...")
+        return self._('The horn is silent. Rebooting ...')
 
     def on_uploading(self, to):
-        return self._("Uploading data to {to} ...").format(to=to)
+        return self._('Sending ravens to {to} ...').format(to=to)
 
     def on_last_session_data(self, last_session):
-        status = self._('Kicked {num} stations\n').format(num=last_session.deauthed)
+        status = self._('Tested {num} stations\n').format(num=last_session.deauthed)
         if last_session.associated > 999:
-            status += self._('Made >999 new friends\n')
+            status += self._('Observed >999 associations\n')
         else:
-            status += self._('Made {num} new friends\n').format(num=last_session.associated)
-        status += self._('Got {num} handshakes\n').format(num=last_session.handshakes)
+            status += self._('Observed {num} associations\n').format(num=last_session.associated)
+        status += self._('Captured {num} handshakes\n').format(num=last_session.handshakes)
         if last_session.peers == 1:
-            status += self._('Met 1 peer')
+            status += self._('Met 1 watcher')
         elif last_session.peers > 0:
-            status += self._('Met {num} peers').format(num=last_session.peers)
+            status += self._('Met {num} watchers').format(num=last_session.peers)
         return status
 
     def on_last_session_tweet(self, last_session):
         return self._(
-            'I\'ve been pwning for {duration} and kicked {deauthed} clients! I\'ve also met {associated} new friends and ate {handshakes} handshakes! #pwnagotchi #pwnlog #pwnlife #hacktheplanet #skynet').format(
+            'Heimdall watched for {duration}, tested {deauthed} clients, observed {associated} associations, and captured {handshakes} handshakes. #ProjectOdin #Heimdall').format(
             duration=last_session.duration_human,
             deauthed=last_session.deauthed,
             associated=last_session.associated,
@@ -185,7 +179,6 @@ class Voice:
 
     def hhmmss(self, count, fmt):
         if count > 1:
-            # plural
             if fmt == "h":
                 return self._("hours")
             if fmt == "m":
@@ -193,7 +186,6 @@ class Voice:
             if fmt == "s":
                 return self._("seconds")
         else:
-            # sing
             if fmt == "h":
                 return self._("hour")
             if fmt == "m":
