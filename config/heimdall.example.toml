@@ -31,6 +31,11 @@ main.plugins.grid.report = false
 # main.plugins.grid.exclude = ["Asgard", "AA:BB:CC:DD:EE:FF"]
 main.plugins.grid.exclude = []
 
+# Passive captures can still occur by chance even for whitelisted networks.
+# Heimdall privacy removes any capture matching the protected SSID/BSSID lists.
+main.plugins.heimdall-privacy.enabled = true
+main.plugins.heimdall-privacy.protected = []
+
 # Runtime mode controller.
 # Modes: pwn, sentinel, recon, maintenance
 main.plugins.heimdall-mode.enabled = true
