@@ -22,20 +22,23 @@ mkdir -p /var/lib/heimdall /etc/heimdall
 chown "$DEPLOY_USER":"$DEPLOY_USER" /var/lib/heimdall
 chmod 0755 /var/lib/heimdall
 
-# Install Heimdall convenience/status tools.
 if [[ -f "$REPO_ROOT/scripts/heimdall-status" ]]; then
-  install -o root -g root -m 0755 \
-    "$REPO_ROOT/scripts/heimdall-status" \
-    /usr/local/bin/heimdall-status
+  install -o root -g root -m 0755 "$REPO_ROOT/scripts/heimdall-status" /usr/local/bin/heimdall-status
+fi
+if [[ -f "$REPO_ROOT/scripts/heimdall-wireless-preflight" ]]; then
+  install -o root -g root -m 0755 "$REPO_ROOT/scripts/heimdall-wireless-preflight" /usr/local/bin/heimdall-wireless-preflight
 fi
 
-# When a Pwnagotchi-compatible runtime exists, use its native UI/display stack.
-# Josh's Waveshare V2 is already supported as ui.display.type = "waveshare_2".
-# Heimdall extends the runtime through plugins and UI/voice overlays instead of
-# running a second GPIO owner for the same e-paper panel.
 PWN_RUNTIME=0
-if systemctl list-unit-files pwnagotchi.service >/dev/null 2>&1 || \
-   python3 -c 'import pwnagotchi' >/dev/null 2>&1; then
+PKG_DIR=""
+if python3 -c 'import pwnagotchi' >/dev/null 2>&1; then
+  PWN_RUNTIME=1
+  PKG_DIR="$(python3 - <<'PY'
+import os, pwnagotchi
+print(os.path.dirname(os.path.abspath(pwnagotchi.__file__)))
+PY
+)"
+elif systemctl list-unit-files pwnagotchi.service >/dev/null 2>&1; then
   PWN_RUNTIME=1
 fi
 
@@ -43,30 +46,33 @@ if [[ "$PWN_RUNTIME" -eq 1 ]]; then
   PLUGIN_DIR=/usr/local/share/pwnagotchi/custom-plugins
   mkdir -p "$PLUGIN_DIR"
 
-  for plugin in \
-    heimdall_heartbeat.py \
-    heimdall_health.py \
-    heimdall_mode.py \
-    heimdall_telemetry.py; do
-    if [[ -f "$REPO_ROOT/custom_plugins/$plugin" ]]; then
-      install -o root -g root -m 0644 \
-        "$REPO_ROOT/custom_plugins/$plugin" \
-        "$PLUGIN_DIR/$plugin"
-    fi
+  for plugin in heimdall_heartbeat.py heimdall_health.py heimdall_mode.py heimdall_telemetry.py; do
+    [[ -f "$REPO_ROOT/custom_plugins/$plugin" ]] && \
+      install -o root -g root -m 0644 "$REPO_ROOT/custom_plugins/$plugin" "$PLUGIN_DIR/$plugin"
   done
 
-  # The standalone display service is a development fallback only. Disable it
-  # once the native Pwnagotchi display stack is available to avoid GPIO17/SPI
-  # contention between two e-paper drivers.
+  # Overlay only Heimdall-owned presentation files. Keep the inherited wireless,
+  # capture, Bettercap and plugin engine intact.
+  if [[ -n "$PKG_DIR" && -d "$PKG_DIR" ]]; then
+    mkdir -p /var/backups/heimdall/ui
+    for rel in voice.py ui/faces.py ui/view.py; do
+      src="$REPO_ROOT/pwnagotchi/$rel"
+      dst="$PKG_DIR/$rel"
+      if [[ -f "$src" && -f "$dst" ]]; then
+        [[ -f "/var/backups/heimdall/ui/$(basename "$rel").original" ]] || \
+          cp -a "$dst" "/var/backups/heimdall/ui/$(basename "$rel").original"
+        install -o root -g root -m 0644 "$src" "$dst"
+      fi
+    done
+  fi
+
+  # Native Pwnagotchi owns the supported Waveshare V2 display.
   systemctl disable --now heimdall-display.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/heimdall-display.service
 else
-  # Development fallback for a clean Raspberry Pi OS host before the inherited
-  # Pwnagotchi runtime is installed.
+  # Development fallback only, until the compatible Pwnagotchi runtime exists.
   if [[ -f "$REPO_ROOT/systemd/heimdall-display.service" ]]; then
-    install -o root -g root -m 0644 \
-      "$REPO_ROOT/systemd/heimdall-display.service" \
-      /etc/systemd/system/heimdall-display.service
+    install -o root -g root -m 0644 "$REPO_ROOT/systemd/heimdall-display.service" /etc/systemd/system/heimdall-display.service
   fi
 fi
 
@@ -85,7 +91,6 @@ EOF
 chmod 0644 /etc/heimdall/release
 
 systemctl daemon-reload
-
 if [[ "$PWN_RUNTIME" -eq 1 ]]; then
   systemctl restart pwnagotchi.service >/dev/null 2>&1 || true
 else
