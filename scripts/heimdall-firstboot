@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MARKER="$HOME/.heimdall-firstboot-complete"
+CONFIG="/etc/pwnagotchi/config.toml"
+MODE_FILE="/var/lib/heimdall/mode"
+
+[[ -f "$MARKER" ]] && exit 0
+[[ -t 0 ]] || exit 0
+
+clear
+cat <<'EOF'
+========================================
+              HEIMDALL
+        Guardian of the Bifrost
+
+        Persona: Josh
+        v0.1.0-alpha
+========================================
+
+Welcome to Heimdall first-boot setup.
+EOF
+
+read -r -p "Node name [heimdall-01]: " NODE
+NODE=${NODE:-heimdall-01}
+
+while true; do
+  read -r -s -p "Heimdall web password: " WEBPASS
+  echo
+  read -r -s -p "Confirm web password: " WEBPASS2
+  echo
+  [[ -n "$WEBPASS" && "$WEBPASS" == "$WEBPASS2" ]] && break
+  echo "Passwords did not match. Try again."
+done
+
+cat <<'EOF'
+Choose the starting mode:
+  1) PWN          Original Pwnagotchi-style active mode
+  2) SENTINEL     Passive observation
+  3) RECON        Observation + peer advertising
+  4) MAINTENANCE  Management only
+EOF
+read -r -p "Mode [1]: " MODE_CHOICE
+case "${MODE_CHOICE:-1}" in
+  2) MODE=sentinel ;;
+  3) MODE=recon ;;
+  4) MODE=maintenance ;;
+  *) MODE=pwn ;;
+esac
+
+sudo python3 - "$CONFIG" "$NODE" "$WEBPASS" <<'PY'
+import pathlib, re, sys
+path = pathlib.Path(sys.argv[1])
+node = sys.argv[2]
+password = sys.argv[3]
+text = path.read_text(encoding='utf-8') if path.exists() else ''
+
+def set_key(text, key, value):
+    pattern = re.compile(rf'(?m)^\s*{re.escape(key)}\s*=.*$')
+    line = f'{key} = {value}'
+    if pattern.search(text):
+        return pattern.sub(line, text, count=1)
+    if text and not text.endswith('\n'):
+        text += '\n'
+    return text + line + '\n'
+
+text = set_key(text, 'main.name', '"heimdall"')
+text = set_key(text, 'main.plugins.heimdall-heartbeat.node_name', repr(node).replace("'", '"'))
+text = set_key(text, 'ui.web.username', '"heimdall"')
+text = set_key(text, 'ui.web.password', repr(password).replace("'", '"'))
+path.write_text(text, encoding='utf-8')
+PY
+
+echo "$MODE" | sudo tee "$MODE_FILE" >/dev/null
+sudo chmod 0644 "$MODE_FILE"
+touch "$MARKER"
+
+echo
+cat <<EOF
+Heimdall setup complete.
+
+System : Heimdall
+Persona: Josh
+Node   : $NODE
+Mode   : ${MODE^^}
+
+Web user: heimdall
+
+Rebooting to apply the final configuration...
+EOF
+sleep 3
+sudo reboot
