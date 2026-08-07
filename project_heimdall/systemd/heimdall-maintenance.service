@@ -1,0 +1,16 @@
+[Unit]
+Description=Project Odin Heimdall Maintenance Authentication
+After=network-online.target heimdall.service
+Requires=heimdall.service
+
+[Service]
+Type=simple
+User=nabzaf
+WorkingDirectory=/home/nabzaf/Heimdall/project_heimdall
+ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/maintenance_auth.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
