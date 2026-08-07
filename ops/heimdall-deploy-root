@@ -22,8 +22,8 @@ mkdir -p /var/lib/heimdall /etc/heimdall
 chown "$DEPLOY_USER":"$DEPLOY_USER" /var/lib/heimdall
 chmod 0755 /var/lib/heimdall
 
-# Install Heimdall-owned CLI helpers automatically.
-for tool in "$REPO_ROOT"/scripts/heimdall-*; do
+# Install Heimdall/Bifrost-owned CLI helpers automatically.
+for tool in "$REPO_ROOT"/scripts/heimdall-* "$REPO_ROOT"/scripts/bifrost-*; do
   [[ -f "$tool" ]] || continue
   install -o root -g root -m 0755 "$tool" "/usr/local/bin/$(basename "$tool")"
 done
@@ -51,8 +51,8 @@ if [[ "$PWN_RUNTIME" -eq 1 ]]; then
     install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$(basename "$plugin")"
   done
 
-  # Overlay only Heimdall-owned presentation files. Keep the inherited wireless,
-  # capture, Bettercap and plugin engine intact.
+  # Overlay only Heimdall-owned presentation files. Keep the inherited runtime
+  # available while Odin's defensive field profile disables active behavior.
   if [[ -n "$PKG_DIR" && -d "$PKG_DIR" ]]; then
     mkdir -p /var/backups/heimdall/ui
     for rel in voice.py ui/faces.py ui/view.py; do
@@ -76,6 +76,14 @@ else
   fi
 fi
 
+# The postboot service replaces the e-paper REBOOTING frame with RETURNED after
+# a managed Bifrost update, then restores normal Josh UI after a short hold.
+if [[ -f "$REPO_ROOT/systemd/heimdall-bifrost-postboot.service" ]]; then
+  install -o root -g root -m 0644 \
+    "$REPO_ROOT/systemd/heimdall-bifrost-postboot.service" \
+    /etc/systemd/system/heimdall-bifrost-postboot.service
+fi
+
 VERSION="unknown"
 [[ -r "$REPO_ROOT/VERSION" ]] && VERSION="$(tr -d '\r\n' < "$REPO_ROOT/VERSION")"
 BUILD="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -91,6 +99,8 @@ EOF
 chmod 0644 /etc/heimdall/release
 
 systemctl daemon-reload
+systemctl enable heimdall-bifrost-postboot.service >/dev/null 2>&1 || true
+
 if [[ "$PWN_RUNTIME" -eq 1 ]]; then
   systemctl restart pwnagotchi.service >/dev/null 2>&1 || true
 else
