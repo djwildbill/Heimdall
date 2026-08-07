@@ -55,10 +55,12 @@ case "$ACTION" in
     fi
     run_as_node git -C "$REPO" merge --ff-only origin/heimdall-dev
     install -m 0644 "$BASE/systemd/heimdall.service" /etc/systemd/system/heimdall.service
+    install -m 0644 "$BASE/systemd/heimdall-maintenance.service" /etc/systemd/system/heimdall-maintenance.service
     install -m 0644 "$BASE/systemd/heimdall-ui.service" /etc/systemd/system/heimdall-ui.service
     install -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
     systemctl daemon-reload
     systemctl restart heimdall.service
+    systemctl restart heimdall-maintenance.service
     systemctl restart heimdall-ui.service ;;
   backup)
     make_backup ;;
