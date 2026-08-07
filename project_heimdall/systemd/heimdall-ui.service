@@ -1,0 +1,16 @@
+[Unit]
+Description=Project Odin Heimdall Odin-style UI
+After=heimdall.service network-online.target
+Requires=heimdall.service
+
+[Service]
+Type=simple
+User=nabzaf
+WorkingDirectory=/home/nabzaf/Heimdall/project_heimdall
+ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/ui_server.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
