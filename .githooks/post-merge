@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -u
+
+# git pull that creates a merge invokes this hook. The privileged helper is
+# restricted by sudoers and performs only Heimdall service deployment.
+if command -v sudo >/dev/null 2>&1; then
+  sudo -n /usr/local/sbin/heimdall-deploy || {
+    echo "Heimdall auto-deploy did not run. Execute: heimdall-deploy" >&2
+    exit 0
+  }
+fi
