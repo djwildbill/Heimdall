@@ -5,64 +5,65 @@ main.name = "heimdall"
 main.lang = "en"
 main.custom_plugins = "/usr/local/share/pwnagotchi/custom-plugins"
 
-# Preserve the original Pwnagotchi-style active behavior by default.
-# Use only on networks/environments where you have authorization.
-personality.deauth = true
-personality.associate = true
-personality.advertise = true
+# -----------------------------------------------------------------------------
+# Defensive default posture
+# -----------------------------------------------------------------------------
+# Heimdall observes and documents authorized wireless environments. Active
+# association/disruption features are disabled in the Odin field profile.
+personality.deauth = false
+personality.associate = false
+personality.advertise = false
 
 # -----------------------------------------------------------------------------
 # Heimdall privacy / protected-network policy
 # -----------------------------------------------------------------------------
-# Add every trusted/private SSID and/or BSSID here. These networks are excluded
-# from active interaction by the inherited Pwnagotchi engine.
-# Examples only -- replace with your own values in the local config:
-# main.whitelist = ["Asgard", "AA:BB:CC:DD:EE:FF"]
+# Add every trusted/private SSID and/or BSSID here. Keep real values ONLY in
+# Josh's local configuration; do not commit them to Git.
+# Example only:
+# main.whitelist = ["PRIVATE_SSID", "AA:BB:CC:DD:EE:FF"]
 main.whitelist = []
 
-# Keep PwnGrid disabled for Odin deployments unless you intentionally opt in.
+# Keep PwnGrid disabled for Odin deployments.
 main.plugins.grid.enabled = false
 main.plugins.grid.report = false
-
-# Defense in depth: if grid reporting is ever intentionally enabled, entries in
-# this list must still be excluded from grid reporting. Keep this synchronized
-# with main.whitelist for trusted/private networks.
-# Example:
-# main.plugins.grid.exclude = ["Asgard", "AA:BB:CC:DD:EE:FF"]
 main.plugins.grid.exclude = []
 
-# Passive captures can still occur by chance even for whitelisted networks.
-# Heimdall privacy removes any capture matching the protected SSID/BSSID lists.
+# Defense in depth: protected identifiers are discarded by the legacy runtime.
 main.plugins.heimdall-privacy.enabled = true
 main.plugins.heimdall-privacy.protected = []
 
 # Runtime mode controller.
-# Modes: pwn, sentinel, recon, maintenance
+# Modes: sentinel, recon, maintenance. Odin field default is sentinel.
 main.plugins.heimdall-mode.enabled = true
-main.plugins.heimdall-mode.default_mode = "pwn"
+main.plugins.heimdall-mode.default_mode = "sentinel"
 main.plugins.heimdall-mode.mode_path = "/var/lib/heimdall/mode"
 main.plugins.heimdall-mode.control_endpoint = ""
 main.plugins.heimdall-mode.token = ""
-main.plugins.heimdall-mode.poll_interval = 15
+main.plugins.heimdall-mode.poll_interval = 10
 main.plugins.heimdall-mode.timeout = 5
 
 # Live wireless telemetry for Josh's e-paper display.
 main.plugins.heimdall-telemetry.enabled = true
 main.plugins.heimdall-telemetry.state_path = "/var/lib/heimdall/wireless.json"
 
+# Bifrost update/reboot display. This draws the full-screen Viking journey and
+# intentionally leaves the REBOOTING frame on e-paper while Linux is down.
+main.plugins.heimdall-bifrost-display.enabled = true
+main.plugins.heimdall-bifrost-display.state_path = "/var/lib/heimdall/bifrost-display.json"
+
 # Heimdall heartbeat -> Odin
 main.plugins.heimdall-heartbeat.enabled = true
 main.plugins.heimdall-heartbeat.node_name = "heimdall-01"
 main.plugins.heimdall-heartbeat.endpoint = ""
 main.plugins.heimdall-heartbeat.token = ""
-main.plugins.heimdall-heartbeat.interval = 60
+main.plugins.heimdall-heartbeat.interval = 10
 main.plugins.heimdall-heartbeat.timeout = 5
 main.plugins.heimdall-heartbeat.interface = "wlan0"
 main.plugins.heimdall-heartbeat.queue_path = "/var/lib/heimdall/heartbeat-queue.jsonl"
 
 # Local health telemetry
 main.plugins.heimdall-health.enabled = true
-main.plugins.heimdall-health.interval = 60
+main.plugins.heimdall-health.interval = 10
 main.plugins.heimdall-health.status_path = "/var/lib/heimdall/health.json"
 
 # SD-card write reduction
@@ -76,7 +77,12 @@ ui.display.enabled = true
 ui.display.type = "waveshare_2"
 ui.display.color = "black"
 
-# Change web credentials before exposing the management UI.
+# Keep UI refresh conservative for e-paper; event states force meaningful
+# changes while observation/heartbeat logic runs every 10 seconds.
+ui.fps = 0.0
+
+# Keep web UI credentials local and strong. Bifrost/Tailscale should be the
+# remote transport; do not expose this interface publicly.
 ui.web.enabled = true
 ui.web.username = "heimdall"
 ui.web.password = "CHANGE_ME"
