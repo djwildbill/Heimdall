@@ -1,0 +1,50 @@
+name: Build Heimdall Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - heimdall-dev
+    paths:
+      - 'Makefile'
+      - 'builder/**'
+      - 'config/**'
+      - 'custom_plugins/**'
+      - 'pwnagotchi/**'
+      - 'scripts/**'
+      - '.github/workflows/build-heimdall-image.yml'
+
+jobs:
+  build-image:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout Heimdall
+        uses: actions/checkout@v4
+        with:
+          ref: heimdall-dev
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl git make unzip zip golang-go qemu-user-static kpartx
+
+      - name: Install Packer ARM builder
+        run: make install
+
+      - name: Build Heimdall image
+        run: make heimdall
+
+      - name: Show image checksums
+        run: cat Heimdall-v0.1.0-alpha.sha256
+
+      - name: Upload Heimdall image bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Heimdall-v0.1.0-alpha
+          path: |
+            Heimdall-v0.1.0-alpha.zip
+            Heimdall-v0.1.0-alpha.sha256
+          if-no-files-found: error
+          retention-days: 14
