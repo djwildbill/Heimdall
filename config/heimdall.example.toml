@@ -1,0 +1,46 @@
+# Heimdall v0.1 Alpha example configuration
+# Guardian of the Bifrost — Persona: Josh
+
+main.name = "heimdall"
+main.lang = "en"
+main.custom_plugins = "/usr/local/share/pwnagotchi/custom-plugins"
+
+# Defensive default: observe passively unless active testing is explicitly authorized.
+personality.deauth = false
+personality.associate = false
+personality.advertise = false
+
+# Keep PwnGrid disabled for Odin deployments.
+main.plugins.grid.enabled = false
+main.plugins.grid.report = false
+
+# Heimdall heartbeat -> Odin
+main.plugins.heimdall-heartbeat.enabled = true
+main.plugins.heimdall-heartbeat.node_name = "heimdall-01"
+main.plugins.heimdall-heartbeat.endpoint = ""
+main.plugins.heimdall-heartbeat.token = ""
+main.plugins.heimdall-heartbeat.interval = 60
+main.plugins.heimdall-heartbeat.timeout = 5
+main.plugins.heimdall-heartbeat.interface = "wlan0"
+main.plugins.heimdall-heartbeat.queue_path = "/var/lib/heimdall/heartbeat-queue.jsonl"
+
+# Local health telemetry
+main.plugins.heimdall-health.enabled = true
+main.plugins.heimdall-health.interval = 60
+main.plugins.heimdall-health.status_path = "/var/lib/heimdall/health.json"
+
+# SD-card write reduction
+fs.memory.enabled = true
+fs.memory.mounts.log.enabled = true
+fs.memory.mounts.data.enabled = true
+
+# Recommended Waveshare 2.13in V2 display.
+# Change these values if Josh uses a different display.
+ui.display.enabled = true
+ui.display.type = "waveshare_2"
+ui.display.color = "black"
+
+# Change web credentials before exposing the management UI.
+ui.web.enabled = true
+ui.web.username = "heimdall"
+ui.web.password = "CHANGE_ME"
