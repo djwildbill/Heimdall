@@ -43,6 +43,7 @@ install -m 0644 "$REPO_ROOT/pwnagotchi/ui/view.py" "$PKG_DIR/ui/view.py"
 install -m 0644 "$REPO_ROOT/custom_plugins/heimdall_heartbeat.py" "$PLUGIN_DIR/heimdall_heartbeat.py"
 install -m 0644 "$REPO_ROOT/custom_plugins/heimdall_health.py" "$PLUGIN_DIR/heimdall_health.py"
 install -m 0644 "$REPO_ROOT/custom_plugins/heimdall_mode.py" "$PLUGIN_DIR/heimdall_mode.py"
+install -m 0755 "$REPO_ROOT/scripts/heimdall-mode" /usr/local/bin/heimdall-mode
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
   install -m 0600 "$REPO_ROOT/config/heimdall.example.toml" "$CONFIG_FILE"
@@ -53,6 +54,7 @@ fi
 
 # Preserve the original active Pwnagotchi-style behavior as Heimdall's PWN mode.
 echo pwn > /var/lib/heimdall/mode
+chmod 0644 /var/lib/heimdall/mode
 
 if command -v hostnamectl >/dev/null 2>&1; then
   hostnamectl set-hostname heimdall || true
@@ -77,13 +79,12 @@ Default mode: PWN
   Keeps the original Pwnagotchi-style active behavior.
   Use active behavior only where you have authorization.
 
-Additional Heimdall modes:
-  sentinel     passive observation
-  recon        observation + peer advertising, no client disruption
-  maintenance  management/maintenance
+Local mode control is available even without Odin/Bifrost/Geri:
+  SSH:  sudo heimdall-mode pwn|sentinel|recon|maintenance
+  Web:  /plugins/heimdall_mode on the normal Heimdall web UI
 
 PwnGrid reporting remains disabled by default for Odin deployments.
-Review $CONFIG_FILE, especially display settings and the optional Odin/Geri control endpoint/token.
+Review $CONFIG_FILE, especially display settings, web credentials, and the optional Odin/Geri control endpoint/token.
 Then run:
   sudo reboot
 
