@@ -5,14 +5,25 @@ main.name = "heimdall"
 main.lang = "en"
 main.custom_plugins = "/usr/local/share/pwnagotchi/custom-plugins"
 
-# Defensive default: observe passively unless active testing is explicitly authorized.
-personality.deauth = false
-personality.associate = false
-personality.advertise = false
+# Preserve the original Pwnagotchi-style active behavior by default.
+# Use only on networks/environments where you have authorization.
+personality.deauth = true
+personality.associate = true
+personality.advertise = true
 
-# Keep PwnGrid disabled for Odin deployments.
+# Keep PwnGrid disabled for Odin deployments unless you intentionally opt in.
 main.plugins.grid.enabled = false
 main.plugins.grid.report = false
+
+# Runtime mode controller.
+# Modes: pwn, sentinel, recon, maintenance
+main.plugins.heimdall-mode.enabled = true
+main.plugins.heimdall-mode.default_mode = "pwn"
+main.plugins.heimdall-mode.mode_path = "/var/lib/heimdall/mode"
+main.plugins.heimdall-mode.control_endpoint = ""
+main.plugins.heimdall-mode.token = ""
+main.plugins.heimdall-mode.poll_interval = 15
+main.plugins.heimdall-mode.timeout = 5
 
 # Heimdall heartbeat -> Odin
 main.plugins.heimdall-heartbeat.enabled = true
