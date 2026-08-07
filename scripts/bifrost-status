@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -u
+
+printf 'Bifrost status\n==============\n'
+printf 'Host      : %s\n' "$(hostname)"
+printf 'Internet  : '
+if curl -fsS --max-time 5 https://login.tailscale.com >/dev/null 2>&1; then echo ONLINE; else echo UNAVAILABLE; fi
+
+printf 'tailscaled : '
+if systemctl is-active --quiet tailscaled 2>/dev/null; then echo ACTIVE; else echo INACTIVE; fi
+
+if command -v tailscale >/dev/null 2>&1; then
+  printf 'VPN IPv4  : %s\n' "$(tailscale ip -4 2>/dev/null | head -n1 || echo none)"
+  printf 'VPN state : '
+  tailscale status >/dev/null 2>&1 && echo CONNECTED || echo DISCONNECTED
+  printf '\nServe:\n'
+  tailscale serve status 2>/dev/null || true
+else
+  echo 'Tailscale : NOT INSTALLED'
+fi
+
+printf '\nSSH       : '
+if systemctl is-active --quiet ssh 2>/dev/null; then echo ACTIVE; else echo INACTIVE; fi
+
+printf 'Heimdall  : '
+if systemctl is-active --quiet heimdall 2>/dev/null; then echo ACTIVE; else echo STOPPED/UNMANAGED; fi
