@@ -41,6 +41,10 @@ main.plugins.heimdall-mode.token = ""
 main.plugins.heimdall-mode.poll_interval = 15
 main.plugins.heimdall-mode.timeout = 5
 
+# Live wireless telemetry for Josh's e-paper display.
+main.plugins.heimdall-telemetry.enabled = true
+main.plugins.heimdall-telemetry.state_path = "/var/lib/heimdall/wireless.json"
+
 # Heimdall heartbeat -> Odin
 main.plugins.heimdall-heartbeat.enabled = true
 main.plugins.heimdall-heartbeat.node_name = "heimdall-01"
