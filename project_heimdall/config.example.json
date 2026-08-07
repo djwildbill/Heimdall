@@ -1,0 +1,11 @@
+{
+  "node_name": "Heimdall-001",
+  "site_name": "Authorized Test Site",
+  "authorized_scope": true,
+  "scan_interval_seconds": 30,
+  "dashboard_host": "0.0.0.0",
+  "dashboard_port": 8080,
+  "new_network_alerts": true,
+  "signal_change_alert_db": 25,
+  "session_export_interval_seconds": 60
+}
