@@ -153,11 +153,10 @@
           Web control:
             /plugins/heimdall_mode
 
-    - name: disable PwnGrid peer service by default
+    - name: keep local PwnGrid peer service available
       systemd:
         name: pwngrid-peer.service
-        enabled: no
-        state: stopped
+        enabled: yes
       ignore_errors: yes
 
     - name: enable SSH
