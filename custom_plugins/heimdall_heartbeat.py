@@ -11,10 +11,10 @@ import pwnagotchi.plugins as plugins
 
 
 class Plugin(plugins.Plugin):
-    __author__ = "Project Odin"
+    __author__ = "Odin / Heimdall"
     __version__ = "0.1.0"
     __license__ = "GPL3"
-    __description__ = "Project Heimdall heartbeat reporter for Odin."
+    __description__ = "Heimdall heartbeat reporter for Odin."
 
     def __init__(self):
         self.options = {}
@@ -60,6 +60,8 @@ class Plugin(plugins.Plugin):
     def _build_payload(self):
         return {
             "schema": "odin.heimdall.heartbeat.v1",
+            "system": "Heimdall",
+            "persona": "Josh",
             "node": self.options.get("node_name") or socket.gethostname(),
             "role": "wireless-intelligence",
             "timestamp": int(time.time()),
@@ -79,7 +81,7 @@ class Plugin(plugins.Plugin):
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "Project-Heimdall/0.1",
+            "User-Agent": "Heimdall/0.1",
         }
 
         token = str(self.options.get("token", "")).strip()
@@ -101,9 +103,7 @@ class Plugin(plugins.Plugin):
                 if 200 <= status < 300:
                     logging.debug("[heimdall-heartbeat] Odin heartbeat accepted")
                     return True
-                logging.warning(
-                    "[heimdall-heartbeat] Odin returned HTTP %s", status
-                )
+                logging.warning("[heimdall-heartbeat] Odin returned HTTP %s", status)
                 self._queue_failed_payload(payload)
                 return False
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -112,12 +112,7 @@ class Plugin(plugins.Plugin):
             return False
 
     def _queue_failed_payload(self, payload):
-        queue_path = str(
-            self.options.get(
-                "queue_path",
-                "/var/lib/heimdall/heartbeat-queue.jsonl",
-            )
-        )
+        queue_path = str(self.options.get("queue_path", "/var/lib/heimdall/heartbeat-queue.jsonl"))
 
         try:
             directory = os.path.dirname(queue_path)
@@ -161,10 +156,7 @@ class Plugin(plugins.Plugin):
         except OSError:
             pass
 
-        return {
-            "interface": interface,
-            "state": state,
-        }
+        return {"interface": interface, "state": state}
 
     def _get_int_option(self, name, default):
         try:
