@@ -1,0 +1,16 @@
+[Unit]
+Description=Heimdall E-Paper Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nabzaf
+WorkingDirectory=/home/nabzaf/Heimdall
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/nabzaf/Heimdall/heimdall/display/dashboard.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
