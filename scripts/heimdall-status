@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -u
+
+REPO_ROOT="${HEIMDALL_REPO:-$HOME/Heimdall}"
+VERSION="unknown"
+BUILD="unknown"
+MODE="unknown"
+
+[[ -r "$REPO_ROOT/VERSION" ]] && VERSION="$(tr -d '\r\n' < "$REPO_ROOT/VERSION")"
+if [[ -d "$REPO_ROOT/.git" ]]; then
+  BUILD="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+fi
+[[ -r /var/lib/heimdall/mode ]] && MODE="$(tr -d '\r\n' < /var/lib/heimdall/mode)"
+
+NODE_ID="OVN-002"
+PERSONA="Josh"
+if [[ -r /etc/odin/node.yaml ]]; then
+  parsed="$(awk '/^[[:space:]]*id:/ {print $2; exit}' /etc/odin/node.yaml 2>/dev/null)"
+  [[ -n "$parsed" ]] && NODE_ID="$parsed"
+  parsed="$(awk '/^[[:space:]]*name:[[:space:]]*Josh/ {print $2; exit}' /etc/odin/node.yaml 2>/dev/null)"
+  [[ -n "$parsed" ]] && PERSONA="$parsed"
+fi
+
+TEMP="$(vcgencmd measure_temp 2>/dev/null | sed -n "s/temp=//p")"
+[[ -z "$TEMP" ]] && TEMP="unknown"
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[[ -z "$IP" ]] && IP="offline"
+
+DISPLAY="inactive"
+if systemctl is-active --quiet heimdall-display.service 2>/dev/null; then DISPLAY="active"; fi
+
+BAT="unknown"
+if [[ -S /tmp/pisugar-server.sock ]] && command -v nc >/dev/null 2>&1; then
+  reply="$(printf 'get battery\n' | nc -U -w 1 /tmp/pisugar-server.sock 2>/dev/null | head -n1)"
+  value="$(printf '%s' "$reply" | grep -Eo '[0-9]+([.][0-9]+)?' | head -n1)"
+  [[ -n "$value" ]] && BAT="${value}%"
+fi
+
+printf '%s\n' \
+  "========================================" \
+  "              HEIMDALL" \
+  "========================================" \
+  "Node     : $NODE_ID" \
+  "Persona  : $PERSONA" \
+  "Version  : $VERSION" \
+  "Build    : $BUILD" \
+  "Mode     : $MODE" \
+  "Hostname : $(hostname)" \
+  "IP       : $IP" \
+  "Temp     : $TEMP" \
+  "Battery  : $BAT" \
+  "Display  : $DISPLAY" \
+  "Branch   : $(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || echo unknown)" \
+  "========================================"
