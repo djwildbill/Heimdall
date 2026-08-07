@@ -1,168 +1,138 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import os
 import sys
 import time
-import socket
-import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+# Prefer a locally installed Waveshare package, then the known development
+# checkout used on OVN-002. This avoids vendoring the entire Waveshare tree.
+for candidate in (
+    os.environ.get("HEIMDALL_WAVESHARE_LIB"),
+    os.path.expanduser("~/e-Paper/RaspberryPi_JetsonNano/python/lib"),
+):
+    if candidate and os.path.isdir(candidate) and candidate not in sys.path:
+        sys.path.insert(0, candidate)
 
 from PIL import Image, ImageDraw, ImageFont
 from waveshare_epd import epd2in13_V2
 
+from heimdall.display.faces import get_face
+from heimdall.display.state import HeimdallState
+from heimdall.display.telemetry import snapshot
 
 NODE_ID = "OVN-002"
 PERSONA = "Josh"
 VERSION = "0.1.0-alpha"
-MODE_FILE = "/var/lib/heimdall/mode"
+REFRESH_SECONDS = 60
 
 
-def get_font(name, size):
-    paths = [
+def get_font(name: str, size: int):
+    paths = (
         f"/usr/share/fonts/truetype/dejavu/{name}.ttf",
         f"/usr/share/fonts/dejavu/{name}.ttf",
-    ]
-
+    )
     for path in paths:
         if os.path.exists(path):
             return ImageFont.truetype(path, size)
-
     return ImageFont.load_default()
 
 
-def read_text(path):
+def choose_state(josh: HeimdallState, data: dict, previous_captures: int) -> int:
+    wireless = data["wireless"]
+    captures = wireless["captures"]
+
+    battery_text = data["battery"].rstrip("%")
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except Exception:
-        return None
-
-
-def get_mode():
-    mode = read_text(MODE_FILE)
-    if not mode:
-        return "BOOT"
-
-    modes = {
-        "pwn": "PWN",
-        "sentinel": "SENT",
-        "recon": "RECN",
-        "maintenance": "CMD",
-    }
-
-    return modes.get(mode.lower(), mode[:4].upper())
-
-
-def get_temperature():
-    value = read_text("/sys/class/thermal/thermal_zone0/temp")
-
-    try:
-        return f"{float(value) / 1000:.0f}C"
-    except Exception:
-        return "--C"
-
-
-def get_uptime():
-    value = read_text("/proc/uptime")
-
-    try:
-        seconds = int(float(value.split()[0]))
-        hours, remainder = divmod(seconds, 3600)
-        minutes = remainder // 60
-
-        if hours >= 24:
-            days, hours = divmod(hours, 24)
-            return f"{days}d{hours:02}h"
-
-        return f"{hours:02}:{minutes:02}"
-    except Exception:
-        return "--:--"
-
-
-def get_ip():
-    try:
-        output = subprocess.check_output(
-            ["hostname", "-I"],
-            text=True,
-        ).strip()
-
-        if output:
-            return output.split()[0]
-
-    except Exception:
+        if battery_text and battery_text != "--" and int(battery_text) <= 15:
+            josh.low_battery()
+            return captures
+    except ValueError:
         pass
 
-    return "OFFLINE"
+    if captures > previous_captures:
+        josh.capture()
+    elif wireless["networks"] >= 20 or wireless["clients"] >= 30:
+        josh.intense()
+    elif wireless["networks"] > 0:
+        josh.observing(happy=wireless["clients"] > 0)
+    elif data["wifi"] == "DOWN":
+        josh.bored()
+    else:
+        josh.normal()
+
+    return captures
 
 
-def wifi_status():
-    try:
-        result = subprocess.check_output(
-            ["iwgetid", "-r"],
-            text=True,
-        ).strip()
-
-        return "UP" if result else "DOWN"
-
-    except Exception:
-        return "DOWN"
-
-
-def battery():
-    # PiSugar integration comes next.
-    return "--%"
-
-
-def render(epd):
+def draw_dashboard(epd, josh: HeimdallState, data: dict):
     image = Image.new("1", (epd.height, epd.width), 255)
     draw = ImageDraw.Draw(image)
 
-    title = get_font("DejaVuSans-Bold", 18)
-    bold = get_font("DejaVuSans-Bold", 11)
-    small = get_font("DejaVuSans", 9)
+    title = get_font("DejaVuSans-Bold", 16)
+    face_font = get_font("DejaVuSans", 19)
+    bold = get_font("DejaVuSans-Bold", 10)
+    small = get_font("DejaVuSans", 8)
+
+    wireless = data["wireless"]
 
     # Header
-    draw.text((5, 2), "HEIMDALL", font=title, fill=0)
-    draw.text((196, 7), get_mode(), font=bold, fill=0)
+    draw.text((4, 1), "HEIMDALL", font=title, fill=0)
+    draw.text((205, 4), data["mode"], font=bold, fill=0)
+    draw.line((4, 22, 245, 22), fill=0)
 
-    draw.line((5, 25, 244, 25), fill=0)
+    # Identity and Josh face
+    draw.text((4, 27), f"{NODE_ID}  {PERSONA}", font=bold, fill=0)
+    face = get_face(josh.state)
+    draw.text((118, 25), face, font=face_font, fill=0)
 
-    # Identity
-    draw.text((5, 31), NODE_ID, font=bold, fill=0)
-    draw.text((75, 31), PERSONA, font=bold, fill=0)
+    # Pwnagotchi-style live counters, Heimdall terminology
+    draw.text((4, 52), f"NET {wireless['networks']:>2}", font=bold, fill=0)
+    draw.text((65, 52), f"CLI {wireless['clients']:>2}", font=bold, fill=0)
+    draw.text((126, 52), f"CAP {wireless['captures']:>2}", font=bold, fill=0)
+    draw.text((188, 52), f"CH {str(wireless['channel']):>2}", font=bold, fill=0)
 
-    # Live status
-    draw.text((5, 49), f"WIFI {wifi_status()}", font=small, fill=0)
-    draw.text((89, 49), f"BAT {battery()}", font=small, fill=0)
-    draw.text((168, 49), f"T {get_temperature()}", font=small, fill=0)
+    draw.text((4, 68), f"BAT {data['battery']}", font=small, fill=0)
+    draw.text((72, 68), f"TEMP {data['temperature']}", font=small, fill=0)
+    draw.text((144, 68), f"UP {data['uptime']}", font=small, fill=0)
 
-    draw.text((5, 65), f"IP {get_ip()}", font=small, fill=0)
-    draw.text((168, 65), f"UP {get_uptime()}", font=small, fill=0)
+    draw.line((4, 84, 245, 84), fill=0)
 
-    draw.line((5, 84, 244, 84), fill=0)
-
-    draw.text((5, 91), "Watching the Bifrost...", font=bold, fill=0)
-    draw.text((5, 111), f"v{VERSION}", font=small, fill=0)
+    # Josh's current personality message
+    draw.text((4, 90), josh.message[:35], font=bold, fill=0)
+    draw.text((4, 108), f"WiFi {data['wifi']}  {data['ip']}", font=small, fill=0)
+    draw.text((190, 108), f"v{VERSION}", font=small, fill=0)
 
     epd.display(epd.getbuffer(image))
 
 
 def main():
     epd = epd2in13_V2.EPD()
+    josh = HeimdallState()
+    previous_captures = 0
 
     try:
         while True:
+            data = snapshot()
+            previous_captures = choose_state(josh, data, previous_captures)
+
             epd.init(epd.FULL_UPDATE)
-            render(epd)
+            draw_dashboard(epd, josh, data)
             epd.sleep()
 
-            # v0.1 uses conservative full refreshes.
-            time.sleep(120)
+            # Conservative refresh while the v0.1 layout is being tested.
+            time.sleep(REFRESH_SECONDS)
 
     except KeyboardInterrupt:
-        epd.sleep()
+        try:
+            epd.sleep()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
