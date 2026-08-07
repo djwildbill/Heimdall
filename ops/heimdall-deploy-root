@@ -22,12 +22,11 @@ mkdir -p /var/lib/heimdall /etc/heimdall
 chown "$DEPLOY_USER":"$DEPLOY_USER" /var/lib/heimdall
 chmod 0755 /var/lib/heimdall
 
-if [[ -f "$REPO_ROOT/scripts/heimdall-status" ]]; then
-  install -o root -g root -m 0755 "$REPO_ROOT/scripts/heimdall-status" /usr/local/bin/heimdall-status
-fi
-if [[ -f "$REPO_ROOT/scripts/heimdall-wireless-preflight" ]]; then
-  install -o root -g root -m 0755 "$REPO_ROOT/scripts/heimdall-wireless-preflight" /usr/local/bin/heimdall-wireless-preflight
-fi
+# Install Heimdall-owned CLI helpers automatically.
+for tool in "$REPO_ROOT"/scripts/heimdall-*; do
+  [[ -f "$tool" ]] || continue
+  install -o root -g root -m 0755 "$tool" "/usr/local/bin/$(basename "$tool")"
+done
 
 PWN_RUNTIME=0
 PKG_DIR=""
@@ -46,9 +45,10 @@ if [[ "$PWN_RUNTIME" -eq 1 ]]; then
   PLUGIN_DIR=/usr/local/share/pwnagotchi/custom-plugins
   mkdir -p "$PLUGIN_DIR"
 
-  for plugin in heimdall_heartbeat.py heimdall_health.py heimdall_mode.py heimdall_telemetry.py; do
-    [[ -f "$REPO_ROOT/custom_plugins/$plugin" ]] && \
-      install -o root -g root -m 0644 "$REPO_ROOT/custom_plugins/$plugin" "$PLUGIN_DIR/$plugin"
+  # Install all Heimdall-owned plugins; leave upstream/default plugins alone.
+  for plugin in "$REPO_ROOT"/custom_plugins/heimdall_*.py; do
+    [[ -f "$plugin" ]] || continue
+    install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$(basename "$plugin")"
   done
 
   # Overlay only Heimdall-owned presentation files. Keep the inherited wireless,
