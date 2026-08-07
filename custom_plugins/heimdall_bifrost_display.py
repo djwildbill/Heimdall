@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -23,7 +24,7 @@ STATE_PATH = Path('/var/lib/heimdall/bifrost-display.json')
 
 class HeimdallBifrostDisplay(plugins.Plugin):
     __author__ = 'Project Odin'
-    __version__ = '0.1.0'
+    __version__ = '0.1.1'
     __license__ = 'GPL3'
     __description__ = 'Bifrost update/reboot animation for Josh e-paper display.'
 
@@ -31,6 +32,8 @@ class HeimdallBifrostDisplay(plugins.Plugin):
         self._ui = None
         self._last_mtime = 0.0
         self._state = {}
+        self._stop = threading.Event()
+        self._watcher = None
 
     def on_loaded(self):
         logging.info('[bifrost-display] loaded')
@@ -39,15 +42,31 @@ class HeimdallBifrostDisplay(plugins.Plugin):
         self._ui = ui
         ui.on_render(self._render)
         self._load_state(force=True)
+        if self._watcher is None:
+            self._watcher = threading.Thread(target=self._watch_state, name='bifrost-display', daemon=True)
+            self._watcher.start()
+
+    def on_unload(self, ui=None):
+        self._stop.set()
 
     def on_ui_update(self, ui):
         self._load_state()
 
+    def _watch_state(self):
+        while not self._stop.wait(0.75):
+            changed = self._load_state()
+            if changed and self._ui is not None:
+                try:
+                    self._ui.update(force=True)
+                except Exception as exc:
+                    logging.debug('[bifrost-display] deferred refresh: %s', exc)
+
     def _load_state(self, force=False):
+        previous = dict(self._state or {})
         try:
             st = STATE_PATH.stat()
             if not force and st.st_mtime == self._last_mtime:
-                return
+                return False
             self._last_mtime = st.st_mtime
             self._state = json.loads(STATE_PATH.read_text(encoding='utf-8'))
         except FileNotFoundError:
@@ -55,6 +74,7 @@ class HeimdallBifrostDisplay(plugins.Plugin):
         except Exception as exc:
             logging.warning('[bifrost-display] state read failed: %s', exc)
             self._state = {}
+        return force or self._state != previous
 
     @staticmethod
     def _font(size=12):
@@ -112,7 +132,6 @@ class HeimdallBifrostDisplay(plugins.Plugin):
 
         self._center(draw, width, 2, 'BIFROST', title_font)
 
-        # Bridge/rainbow represented as multiple 1-bit arcs/rails.
         bridge_y = max(38, height // 2)
         draw.line((8, bridge_y+18, width-8, bridge_y+18), fill=0, width=2)
         draw.line((8, bridge_y+22, width-8, bridge_y+22), fill=0, width=1)
