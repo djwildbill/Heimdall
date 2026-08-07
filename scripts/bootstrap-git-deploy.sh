@@ -34,7 +34,10 @@ EOF
 sudo chmod 0440 /etc/sudoers.d/heimdall-deploy
 sudo visudo -cf /etc/sudoers.d/heimdall-deploy >/dev/null
 
+# Versioned hooks live in the repository. Keep pulls merge/fast-forward based so
+# post-merge reliably performs deployment after `git pull`.
 git -C "$REPO_ROOT" config core.hooksPath .githooks
+git -C "$REPO_ROOT" config pull.rebase false
 chmod +x "$REPO_ROOT/.githooks/post-merge"
 
 # Convenience command that can also be run manually without a password.
