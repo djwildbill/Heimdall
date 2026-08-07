@@ -42,6 +42,7 @@ install -m 0644 "$REPO_ROOT/pwnagotchi/ui/faces.py" "$PKG_DIR/ui/faces.py"
 install -m 0644 "$REPO_ROOT/pwnagotchi/ui/view.py" "$PKG_DIR/ui/view.py"
 install -m 0644 "$REPO_ROOT/custom_plugins/heimdall_heartbeat.py" "$PLUGIN_DIR/heimdall_heartbeat.py"
 install -m 0644 "$REPO_ROOT/custom_plugins/heimdall_health.py" "$PLUGIN_DIR/heimdall_health.py"
+install -m 0644 "$REPO_ROOT/custom_plugins/heimdall_mode.py" "$PLUGIN_DIR/heimdall_mode.py"
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
   install -m 0600 "$REPO_ROOT/config/heimdall.example.toml" "$CONFIG_FILE"
@@ -49,6 +50,9 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 else
   python3 "$REPO_ROOT/scripts/configure-heimdall.py"
 fi
+
+# Preserve the original active Pwnagotchi-style behavior as Heimdall's PWN mode.
+echo pwn > /var/lib/heimdall/mode
 
 if command -v hostnamectl >/dev/null 2>&1; then
   hostnamectl set-hostname heimdall || true
@@ -69,13 +73,17 @@ Heimdall v0.1 Alpha installed.
 Persona: Josh
 Backup: $BACKUP_DIR
 
-Defensive defaults are enabled:
-  personality.deauth = false
-  personality.associate = false
-  personality.advertise = false
-  PwnGrid reporting = disabled
+Default mode: PWN
+  Keeps the original Pwnagotchi-style active behavior.
+  Use active behavior only where you have authorization.
 
-Review $CONFIG_FILE, especially display settings and the optional Odin endpoint/token.
+Additional Heimdall modes:
+  sentinel     passive observation
+  recon        observation + peer advertising, no client disruption
+  maintenance  management/maintenance
+
+PwnGrid reporting remains disabled by default for Odin deployments.
+Review $CONFIG_FILE, especially display settings and the optional Odin/Geri control endpoint/token.
 Then run:
   sudo reboot
 
