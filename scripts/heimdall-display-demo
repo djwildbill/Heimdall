@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Write safe demo telemetry for testing the Heimdall e-paper dashboard."""
+
+import json
+import os
+import sys
+import time
+
+PATH = "/var/lib/heimdall/wireless.json"
+
+PRESETS = {
+    "quiet": {"networks": 0, "clients": 0, "captures": 0, "channel": "--"},
+    "watch": {"networks": 7, "clients": 4, "captures": 0, "channel": 6},
+    "busy": {"networks": 24, "clients": 38, "captures": 2, "channel": 11},
+    "capture": {"networks": 12, "clients": 9, "captures": 5, "channel": 1},
+}
+
+
+def main():
+    preset = sys.argv[1].lower() if len(sys.argv) > 1 else "watch"
+    if preset not in PRESETS:
+        print("Usage: heimdall-display-demo [quiet|watch|busy|capture]", file=sys.stderr)
+        return 2
+
+    data = dict(PRESETS[preset])
+    now = time.time()
+    data["last_activity"] = now
+    data["last_capture"] = now if preset == "capture" else 0
+
+    os.makedirs(os.path.dirname(PATH), exist_ok=True)
+    with open(PATH, "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
+        handle.write("\n")
+
+    print(f"Wrote Heimdall display demo preset '{preset}' to {PATH}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
