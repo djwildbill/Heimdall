@@ -33,16 +33,35 @@ def save_state(d):
     d['updated_at']=time.strftime('%Y-%m-%dT%H:%M:%S%z')
     STATE.write_text(json.dumps(d,indent=2))
 
+def status_payload():
+    s=load_state(); present=interfaces(); mg=s['management_interface']; obs=s['observation_interface']
+    survey_available=mg in present and obs in present and obs!=mg
+    if survey_available:
+        reason=None
+    elif mg not in present:
+        reason=f'management interface {mg} not present'
+    elif obs==mg:
+        reason='observation interface must be separate from management interface'
+    else:
+        reason=f'second radio required: observation interface {obs} not present'
+    s.update({
+        'interfaces_present':present,
+        'connected_available':mg in present,
+        'survey_available':survey_available,
+        'survey_unavailable_reason':reason,
+        'field_available':mg in present,
+    })
+    return s
+
 def set_mode(mode:str):
     mode=mode.lower().strip()
     if mode not in {'connected','survey','field'}:
         raise ValueError('mode must be connected, survey, or field')
-    s=load_state(); present=interfaces(); mg=s['management_interface']; obs=s['observation_interface']
-    if mg not in present:
-        s['last_error']=f'management interface {mg} not present'; save_state(s); return False,s['last_error']
-    if mode=='survey' and obs not in present:
-        s['last_error']=f'survey requires separate observation interface {obs}; refusing to repurpose {mg}'
-        save_state(s); return False,s['last_error']
+    s=load_state(); cap=status_payload(); mg=s['management_interface']; obs=s['observation_interface']
+    if not cap['connected_available']:
+        s['last_error']=cap['survey_unavailable_reason']; save_state(s); return False,s['last_error']
+    if mode=='survey' and not cap['survey_available']:
+        s['last_error']=cap['survey_unavailable_reason']; save_state(s); return False,s['last_error']
     # Mode state only in this first release. The scanner reads this state and chooses behavior.
     # We intentionally do not disconnect wlan0 or alter interface type here.
     s['mode']=mode; s['last_error']=None; save_state(s); return True,mode
@@ -54,7 +73,7 @@ def main():
     ap.add_argument('--status',action='store_true')
     a=ap.parse_args()
     if a.status or not a.mode:
-        print(json.dumps(load_state(),indent=2)); return
+        print(json.dumps(status_payload(),indent=2)); return
     ok,msg=set_mode(a.mode); print(msg); raise SystemExit(0 if ok else 2)
 
 if __name__=='__main__': main()
