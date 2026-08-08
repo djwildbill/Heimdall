@@ -70,17 +70,41 @@ fi
 chown "$NODE_USER:$NODE_GROUP" "$BASE/maintenance_auth.json"
 chmod 600 "$BASE/maintenance_auth.json"
 
-# Prepare Bluetooth for first pairing. This does not affect wlan0.
-systemctl enable --now bluetooth.service >/dev/null 2>&1 || true
-bluetoothctl power on >/dev/null 2>&1 || true
-bluetoothctl system-alias JOSH-OVN-002 >/dev/null 2>&1 || true
-bluetoothctl pairable on >/dev/null 2>&1 || true
-bluetoothctl discoverable on >/dev/null 2>&1 || true
-if command -v sdptool >/dev/null 2>&1; then
-  sdptool add --channel=22 SP >/dev/null 2>&1 || true
+# BlueZ normally disables the legacy SDP socket on modern Debian releases.
+# Android's classic RFCOMM/SPP discovery needs that service directory, so run
+# bluetoothd with --compat and publish the standard Serial Port UUID on ch 22.
+BTD=""
+for candidate in /usr/libexec/bluetooth/bluetoothd /usr/lib/bluetooth/bluetoothd /usr/sbin/bluetoothd; do
+  if [ -x "$candidate" ]; then BTD="$candidate"; break; fi
+done
+if [ -z "$BTD" ]; then
+  BTD="$(command -v bluetoothd 2>/dev/null || true)"
+fi
+if [ -n "$BTD" ]; then
+  mkdir -p /etc/systemd/system/bluetooth.service.d
+  cat > /etc/systemd/system/bluetooth.service.d/heimdall-compat.conf <<EOF
+[Service]
+ExecStart=
+ExecStart=$BTD --compat
+EOF
+else
+  echo "WARNING: bluetoothd executable not found; SDP compatibility not configured."
 fi
 
 systemctl daemon-reload
+systemctl enable bluetooth.service >/dev/null 2>&1 || true
+systemctl restart bluetooth.service
+sleep 2
+rfkill unblock bluetooth >/dev/null 2>&1 || true
+bluetoothctl power on >/dev/null 2>&1 || true
+bluetoothctl system-alias HEIMDALL >/dev/null 2>&1 || true
+bluetoothctl pairable on >/dev/null 2>&1 || true
+bluetoothctl discoverable on >/dev/null 2>&1 || true
+if command -v sdptool >/dev/null 2>&1; then
+  # Remove/re-add is harmless if no prior SP record exists.
+  sdptool add --channel=22 SP >/dev/null 2>&1 || true
+fi
+
 systemctl enable heimdall.service heimdall-maintenance.service heimdall-ui.service heimdall-radio.service heimdall-recovery.service heimdall-bluetooth.service
 systemctl restart heimdall.service
 sleep 2
@@ -97,7 +121,7 @@ echo "Backend:        http://$(hostname -I | awk '{print $1}'):8080"
 echo "Control UI:     http://$(hostname -I | awk '{print $1}'):8081"
 echo "Recovery portal:http://$(hostname -I | awk '{print $1}'):8082"
 echo "Maintenance:    localhost only on 127.0.0.1:8090"
-echo "Bluetooth:      JOSH-OVN-002 / RFCOMM channel 22"
+echo "Bluetooth:      HEIMDALL / RFCOMM channel 22 / SPP"
 echo
 echo "Status:"
 for svc in heimdall.service heimdall-maintenance.service heimdall-ui.service heimdall-radio.service heimdall-recovery.service heimdall-bluetooth.service; do
