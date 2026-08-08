@@ -4,6 +4,7 @@ BASE="/home/nabzaf/Heimdall/project_heimdall"
 PY="$BASE/.venv/bin/python"
 ACTION="${1:-}"
 case "$ACTION" in
+  prepare) exec "$PY" "$BASE/recovery_ap_manager.py" prepare ;;
   start) exec "$PY" "$BASE/recovery_ap_manager.py" start ;;
   stop) exec "$PY" "$BASE/recovery_ap_manager.py" stop ;;
   status) exec "$PY" "$BASE/recovery_ap_manager.py" status ;;
@@ -14,5 +15,5 @@ case "$ACTION" in
   connect-new)
     [ $# -eq 2 ] || { echo "SSID required" >&2; exit 2; }
     exec "$PY" "$BASE/recovery_ap_manager.py" connect-new "$2" --password-stdin ;;
-  *) echo "Allowed: start stop status show-key connect-saved connect-new" >&2; exit 2 ;;
+  *) echo "Allowed: prepare start stop status show-key connect-saved connect-new" >&2; exit 2 ;;
 esac
