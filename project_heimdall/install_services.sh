@@ -2,6 +2,8 @@
 set -euo pipefail
 
 BASE="/home/nabzaf/Heimdall/project_heimdall"
+NODE_USER="nabzaf"
+NODE_GROUP="nabzaf"
 
 if [ ! -x "$BASE/.venv/bin/python" ]; then
   echo "ERROR: Heimdall virtual environment not found at $BASE/.venv"
@@ -14,6 +16,8 @@ required=(
   "$BASE/ui_control_v2_launcher.py"
   "$BASE/maintenance_auth_v2.py"
   "$BASE/radio_mode_manager.py"
+  "$BASE/maintenance_helper.sh"
+  "$BASE/setup_maintenance_password.py"
   "$BASE/systemd/heimdall.service"
   "$BASE/systemd/heimdall-maintenance.service"
   "$BASE/systemd/heimdall-ui.service"
@@ -26,35 +30,36 @@ done
 "$BASE/.venv/bin/python" -m py_compile \
   "$BASE/ui_control_v2_launcher.py" \
   "$BASE/maintenance_auth_v2.py" \
-  "$BASE/radio_mode_manager.py"
+  "$BASE/radio_mode_manager.py" \
+  "$BASE/setup_maintenance_password.py"
 
-sudo install -m 0644 "$BASE/systemd/heimdall.service" /etc/systemd/system/heimdall.service
-sudo install -m 0644 "$BASE/systemd/heimdall-maintenance.service" /etc/systemd/system/heimdall-maintenance.service
-sudo install -m 0644 "$BASE/systemd/heimdall-ui.service" /etc/systemd/system/heimdall-ui.service
-sudo install -m 0644 "$BASE/systemd/heimdall-radio.service" /etc/systemd/system/heimdall-radio.service
+install -m 0644 "$BASE/systemd/heimdall.service" /etc/systemd/system/heimdall.service
+install -m 0644 "$BASE/systemd/heimdall-maintenance.service" /etc/systemd/system/heimdall-maintenance.service
+install -m 0644 "$BASE/systemd/heimdall-ui.service" /etc/systemd/system/heimdall-ui.service
+install -m 0644 "$BASE/systemd/heimdall-radio.service" /etc/systemd/system/heimdall-radio.service
+install -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
 
-sudo install -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
-
-echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-maintenance *' | sudo tee /etc/sudoers.d/heimdall-maintenance >/dev/null
-sudo chmod 0440 /etc/sudoers.d/heimdall-maintenance
-sudo visudo -cf /etc/sudoers.d/heimdall-maintenance
+echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-maintenance *' > /etc/sudoers.d/heimdall-maintenance
+chmod 0440 /etc/sudoers.d/heimdall-maintenance
+visudo -cf /etc/sudoers.d/heimdall-maintenance
 
 if [ ! -f "$BASE/maintenance_auth.json" ]; then
   echo
   echo "Create the local Heimdall maintenance password."
   echo "This password/hash stays on Josh and is not committed to Git."
-  "$BASE/.venv/bin/python" "$BASE/setup_maintenance_password.py"
+  sudo -u "$NODE_USER" "$BASE/.venv/bin/python" "$BASE/setup_maintenance_password.py"
 fi
-chmod 600 "$BASE/maintenance_auth.json" || true
+chown "$NODE_USER:$NODE_GROUP" "$BASE/maintenance_auth.json"
+chmod 600 "$BASE/maintenance_auth.json"
 
-sudo systemctl daemon-reload
-sudo systemctl enable heimdall.service heimdall-maintenance.service heimdall-ui.service heimdall-radio.service
-sudo systemctl restart heimdall.service
+systemctl daemon-reload
+systemctl enable heimdall.service heimdall-maintenance.service heimdall-ui.service heimdall-radio.service
+systemctl restart heimdall.service
 sleep 2
-sudo systemctl restart heimdall-maintenance.service
+systemctl restart heimdall-maintenance.service
 sleep 1
-sudo systemctl restart heimdall-ui.service
-sudo systemctl restart heimdall-radio.service
+systemctl restart heimdall-ui.service
+systemctl restart heimdall-radio.service
 
 echo
 echo "Heimdall appliance services installed."
