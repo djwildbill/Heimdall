@@ -6,54 +6,46 @@ import socket
 import subprocess
 import threading
 import time
-from pathlib import Path
+import urllib.error
+import urllib.request
 
-from werkzeug.security import check_password_hash
-
-BASE = Path(__file__).resolve().parent
-AUTH_FILE = BASE / 'maintenance_auth.json'
-RADIO_HELPER = '/usr/local/sbin/heimdall-radio-control'
-RECOVERY_HELPER = '/usr/local/sbin/heimdall-recovery'
-MAINT_HELPER = '/usr/local/sbin/heimdall-maintenance'
 CHANNEL = 22
 MAX_LINE = 8192
 BDADDR_ANY = '00:00:00:00:00:00'
+BRIDGE = 'http://127.0.0.1:8090'
 
 
-def run(args, *, input_text=None, timeout=70):
-    p = subprocess.run(args, input=input_text, capture_output=True, text=True, timeout=timeout)
+def run(args, *, timeout=20):
+    p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     out = ((p.stdout or '') + ('\n' + p.stderr if p.stderr else '')).strip()
     return p.returncode, out
 
 
-def load_auth():
+def http_json(method, path, body=None, timeout=120):
+    data = None if body is None else json.dumps(body).encode('utf-8')
+    req = urllib.request.Request(
+        BRIDGE + path,
+        data=data,
+        method=method,
+        headers={'Content-Type': 'application/json'},
+    )
     try:
-        return json.loads(AUTH_FILE.read_text(encoding='utf-8')) if AUTH_FILE.exists() else {}
-    except Exception:
-        return {}
-
-
-def valid_password(password):
-    h = load_auth().get('password_hash')
-    return bool(h and check_password_hash(h, password or ''))
-
-
-def json_from_command(args):
-    code, out = run(args)
-    if code:
-        return {'ok': False, 'error': out or 'command failed'}
-    try:
-        data = json.loads(out or '{}')
-        if isinstance(data, dict):
-            data.setdefault('ok', True)
-        return data
-    except Exception:
-        return {'ok': True, 'output': out}
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode('utf-8')
+            return json.loads(raw or '{}')
+    except urllib.error.HTTPError as exc:
+        try:
+            raw = exc.read().decode('utf-8')
+            return json.loads(raw or '{}')
+        except Exception:
+            return {'ok': False, 'error': f'bridge HTTP {exc.code}'}
+    except Exception as exc:
+        return {'ok': False, 'error': f'control bridge unavailable: {exc}'}
 
 
 def status():
-    radio = json_from_command(['sudo', RADIO_HELPER, 'status'])
-    recovery = json_from_command(['sudo', RECOVERY_HELPER, 'status'])
+    radio = http_json('GET', '/api/control/radio/status')
+    recovery = http_json('GET', '/api/control/recovery/status')
     code, host = run(['hostname'])
     return {
         'ok': True,
@@ -72,49 +64,44 @@ def handle(req):
     if cmd in {'ping', 'status'}:
         return status()
     if cmd == 'radio-status':
-        return json_from_command(['sudo', RADIO_HELPER, 'status'])
+        return http_json('GET', '/api/control/radio/status')
     if cmd == 'recovery-status':
-        return json_from_command(['sudo', RECOVERY_HELPER, 'status'])
+        return http_json('GET', '/api/control/recovery/status')
     if cmd == 'doctor':
-        code, out = run(['sudo', MAINT_HELPER, 'doctor'])
-        return {'ok': code == 0, 'output': out}
+        return http_json('POST', '/api/maintenance/action/doctor', {})
     if cmd == 'check-update':
-        code, out = run(['sudo', MAINT_HELPER, 'check-update'])
-        return {'ok': code == 0, 'output': out}
+        return http_json('POST', '/api/maintenance/action/check-update', {})
 
-    # Everything below changes Josh and therefore requires the local
-    # maintenance password. Pairing alone is not treated as authorization.
-    if not valid_password(str(req.get('password', ''))):
-        return {'ok': False, 'error': 'maintenance authentication required'}
+    password = str(req.get('password', ''))
 
     if cmd == 'set-mode':
         mode = str(req.get('mode', '')).strip().lower()
         if mode not in {'connected', 'survey', 'field'}:
             return {'ok': False, 'error': 'mode must be connected, survey, or field'}
-        code, out = run(['sudo', RADIO_HELPER, mode])
-        return {'ok': code == 0, 'mode': mode, 'output': out}
+        return http_json('POST', '/api/control/radio/mode', {'mode': mode, 'password': password})
     if cmd == 'recovery-start':
-        code, out = run(['sudo', RECOVERY_HELPER, 'start'])
-        return {'ok': code == 0, 'output': out}
+        return http_json('POST', '/api/control/recovery/action', {'action': 'start', 'password': password})
     if cmd == 'recovery-stop':
-        code, out = run(['sudo', RECOVERY_HELPER, 'stop'])
-        return {'ok': code == 0, 'output': out}
+        return http_json('POST', '/api/control/recovery/action', {'action': 'stop', 'password': password})
     if cmd == 'connect-saved':
         profile = str(req.get('profile', '')).strip()
         if not profile:
             return {'ok': False, 'error': 'profile required'}
-        code, out = run(['sudo', RECOVERY_HELPER, 'connect-saved', profile])
-        return {'ok': code == 0, 'output': out}
+        return http_json('POST', '/api/control/recovery/action', {'action': 'connect-saved', 'profile': profile, 'password': password})
     if cmd == 'connect-new':
         ssid = str(req.get('ssid', '')).strip()
         wifi_password = str(req.get('wifi_password', ''))
         if not ssid:
             return {'ok': False, 'error': 'ssid required'}
-        code, out = run(['sudo', RECOVERY_HELPER, 'connect-new', ssid], input_text=wifi_password + '\n')
-        return {'ok': code == 0, 'output': out}
+        return http_json('POST', '/api/control/recovery/action', {
+            'action': 'connect-new', 'ssid': ssid,
+            'wifi_password': wifi_password, 'password': password,
+        })
     if cmd == 'backup':
-        code, out = run(['sudo', MAINT_HELPER, 'backup'])
-        return {'ok': code == 0, 'output': out}
+        # Backup remains an authenticated maintenance action. The web app uses
+        # session auth; Bluetooth sends the local password directly, so backup
+        # is intentionally left for Companion v2 instead of weakening auth.
+        return {'ok': False, 'error': 'backup over Bluetooth is not enabled yet'}
 
     return {'ok': False, 'error': 'unknown command'}
 
@@ -123,7 +110,7 @@ def client_loop(conn, addr):
     conn.settimeout(120)
     buf = b''
     try:
-        conn.sendall((json.dumps({'ok': True, 'hello': 'Project Odin Heimdall', 'node': 'OVN-002', 'codename': 'Josh', 'protocol': 1}) + '\n').encode())
+        conn.sendall((json.dumps({'ok': True, 'hello': 'Project Odin Heimdall', 'node': 'OVN-002', 'codename': 'Josh', 'protocol': 2}) + '\n').encode())
         while True:
             chunk = conn.recv(1024)
             if not chunk:
@@ -158,8 +145,6 @@ def main():
         raise SystemExit('Python Bluetooth socket support is unavailable on this platform')
     server = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    # Python's stdlib Bluetooth socket requires an explicit Bluetooth address
-    # on this Raspberry Pi build; an empty string raises "bad bluetooth address".
     server.bind((BDADDR_ANY, CHANNEL))
     server.listen(2)
     print(f'Heimdall Bluetooth control listening on RFCOMM channel {CHANNEL}', flush=True)
