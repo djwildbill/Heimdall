@@ -61,16 +61,26 @@ case "$ACTION" in
     install -m 0644 "$BASE/systemd/heimdall-ui.service" /etc/systemd/system/heimdall-ui.service
     install -m 0644 "$BASE/systemd/heimdall-radio.service" /etc/systemd/system/heimdall-radio.service
     install -m 0644 "$BASE/systemd/heimdall-recovery.service" /etc/systemd/system/heimdall-recovery.service
+    install -m 0644 "$BASE/systemd/heimdall-bluetooth.service" /etc/systemd/system/heimdall-bluetooth.service
     install -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
     install -m 0755 "$BASE/recovery_helper.sh" /usr/local/sbin/heimdall-recovery
+    install -m 0755 "$BASE/radio_helper.sh" /usr/local/sbin/heimdall-radio-control
     echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-recovery *' > /etc/sudoers.d/heimdall-recovery
-    chmod 0440 /etc/sudoers.d/heimdall-recovery
+    echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-radio-control *' > /etc/sudoers.d/heimdall-radio
+    chmod 0440 /etc/sudoers.d/heimdall-recovery /etc/sudoers.d/heimdall-radio
+    systemctl enable --now bluetooth.service >/dev/null 2>&1 || true
+    bluetoothctl power on >/dev/null 2>&1 || true
+    bluetoothctl system-alias JOSH-OVN-002 >/dev/null 2>&1 || true
+    bluetoothctl pairable on >/dev/null 2>&1 || true
+    bluetoothctl discoverable on >/dev/null 2>&1 || true
+    if command -v sdptool >/dev/null 2>&1; then sdptool add --channel=22 SP >/dev/null 2>&1 || true; fi
     systemctl daemon-reload
-    systemctl enable heimdall-radio.service heimdall-recovery.service >/dev/null 2>&1 || true
+    systemctl enable heimdall-radio.service heimdall-recovery.service heimdall-bluetooth.service >/dev/null 2>&1 || true
     systemctl restart heimdall.service
     systemctl restart heimdall-maintenance.service
     systemctl restart heimdall-radio.service
     systemctl restart heimdall-recovery.service
+    systemctl restart heimdall-bluetooth.service
     systemctl restart heimdall-ui.service ;;
   backup)
     make_backup ;;
