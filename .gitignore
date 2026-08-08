@@ -27,3 +27,12 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Heimdall node-local runtime state (never commit)
+project_heimdall/maintenance_auth.json
+project_heimdall/radio_mode.json
+project_heimdall/recovery_ap.json
+project_heimdall/data/
+project_heimdall/backups/
+project_heimdall/*.local-backup
+project_heimdall/*.local-backup.*
