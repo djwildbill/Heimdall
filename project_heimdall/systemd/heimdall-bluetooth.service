@@ -1,0 +1,20 @@
+[Unit]
+Description=Project Odin Heimdall Bluetooth Control
+After=bluetooth.service heimdall-maintenance.service network.target
+Requires=bluetooth.service heimdall-maintenance.service
+
+[Service]
+Type=simple
+User=nabzaf
+Group=bluetooth
+WorkingDirectory=/home/nabzaf/Heimdall/project_heimdall
+ExecStartPre=/bin/sh -c '/usr/bin/bluetoothctl power on >/dev/null 2>&1 || true'
+ExecStartPre=/bin/sh -c '/usr/bin/bluetoothctl pairable on >/dev/null 2>&1 || true'
+ExecStartPre=/bin/sh -c '/usr/bin/bluetoothctl discoverable on >/dev/null 2>&1 || true'
+ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/bluetooth_control.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
