@@ -17,6 +17,7 @@ RECOVERY_HELPER = '/usr/local/sbin/heimdall-recovery'
 MAINT_HELPER = '/usr/local/sbin/heimdall-maintenance'
 CHANNEL = 22
 MAX_LINE = 8192
+BDADDR_ANY = '00:00:00:00:00:00'
 
 
 def run(args, *, input_text=None, timeout=70):
@@ -157,7 +158,9 @@ def main():
         raise SystemExit('Python Bluetooth socket support is unavailable on this platform')
     server = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(('', CHANNEL))
+    # Python's stdlib Bluetooth socket requires an explicit Bluetooth address
+    # on this Raspberry Pi build; an empty string raises "bad bluetooth address".
+    server.bind((BDADDR_ANY, CHANNEL))
     server.listen(2)
     print(f'Heimdall Bluetooth control listening on RFCOMM channel {CHANNEL}', flush=True)
     while True:
