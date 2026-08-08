@@ -17,6 +17,7 @@ make_backup() {
   [ -f "$BASE/config.json" ] && ITEMS+=("config.json")
   [ -d "$BASE/data" ] && ITEMS+=("data")
   [ -f "$BASE/maintenance_auth.json" ] && ITEMS+=("maintenance_auth.json")
+  [ -f "$BASE/radio_mode.json" ] && ITEMS+=("radio_mode.json")
   [ ${#ITEMS[@]} -gt 0 ] || { echo "Nothing to back up."; return 1; }
   cd "$BASE"
   run_as_node tar -czf "$OUT" "${ITEMS[@]}"
@@ -57,10 +58,13 @@ case "$ACTION" in
     install -m 0644 "$BASE/systemd/heimdall.service" /etc/systemd/system/heimdall.service
     install -m 0644 "$BASE/systemd/heimdall-maintenance.service" /etc/systemd/system/heimdall-maintenance.service
     install -m 0644 "$BASE/systemd/heimdall-ui.service" /etc/systemd/system/heimdall-ui.service
+    install -m 0644 "$BASE/systemd/heimdall-radio.service" /etc/systemd/system/heimdall-radio.service
     install -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
     systemctl daemon-reload
+    systemctl enable heimdall-radio.service >/dev/null 2>&1 || true
     systemctl restart heimdall.service
     systemctl restart heimdall-maintenance.service
+    systemctl restart heimdall-radio.service
     systemctl restart heimdall-ui.service ;;
   backup)
     make_backup ;;
