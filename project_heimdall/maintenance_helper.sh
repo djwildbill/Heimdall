@@ -18,6 +18,7 @@ make_backup() {
   [ -d "$BASE/data" ] && ITEMS+=("data")
   [ -f "$BASE/maintenance_auth.json" ] && ITEMS+=("maintenance_auth.json")
   [ -f "$BASE/radio_mode.json" ] && ITEMS+=("radio_mode.json")
+  [ -f "$BASE/recovery_ap.json" ] && ITEMS+=("recovery_ap.json")
   [ ${#ITEMS[@]} -gt 0 ] || { echo "Nothing to back up."; return 1; }
   cd "$BASE"
   run_as_node tar -czf "$OUT" "${ITEMS[@]}"
@@ -59,12 +60,17 @@ case "$ACTION" in
     install -m 0644 "$BASE/systemd/heimdall-maintenance.service" /etc/systemd/system/heimdall-maintenance.service
     install -m 0644 "$BASE/systemd/heimdall-ui.service" /etc/systemd/system/heimdall-ui.service
     install -m 0644 "$BASE/systemd/heimdall-radio.service" /etc/systemd/system/heimdall-radio.service
+    install -m 0644 "$BASE/systemd/heimdall-recovery.service" /etc/systemd/system/heimdall-recovery.service
     install -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
+    install -m 0755 "$BASE/recovery_helper.sh" /usr/local/sbin/heimdall-recovery
+    echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-recovery *' > /etc/sudoers.d/heimdall-recovery
+    chmod 0440 /etc/sudoers.d/heimdall-recovery
     systemctl daemon-reload
-    systemctl enable heimdall-radio.service >/dev/null 2>&1 || true
+    systemctl enable heimdall-radio.service heimdall-recovery.service >/dev/null 2>&1 || true
     systemctl restart heimdall.service
     systemctl restart heimdall-maintenance.service
     systemctl restart heimdall-radio.service
+    systemctl restart heimdall-recovery.service
     systemctl restart heimdall-ui.service ;;
   backup)
     make_backup ;;
