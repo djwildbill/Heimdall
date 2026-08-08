@@ -10,6 +10,7 @@ AUTH_FILE=BASE/'maintenance_auth.json'
 HELPER='/usr/local/sbin/heimdall-maintenance'
 SESSION_MINUTES=15
 ALLOWED={'doctor','restart-backend','restart-ui','repair-db','check-update','apply-update','backup','reboot','shutdown'}
+READ_ONLY={'doctor','check-update'}
 
 app=Flask(__name__)
 app.config.update(SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Strict',PERMANENT_SESSION_LIFETIME=SESSION_MINUTES*60)
@@ -33,7 +34,7 @@ def run_helper(action):
     except Exception as e:return str(e),500
 
 @app.get('/api/maintenance/status')
-def status():return jsonify({'configured':configured(),'authenticated':authed(),'session_minutes':SESSION_MINUTES})
+def status():return jsonify({'configured':configured(),'authenticated':authed(),'session_minutes':SESSION_MINUTES,'read_only_without_password':sorted(READ_ONLY)})
 @app.post('/api/maintenance/login')
 def login():
     body=request.get_json(silent=True) or {};pw=str(body.get('password',''))
@@ -45,8 +46,8 @@ def login():
 def logout():session.clear();return jsonify({'ok':True})
 @app.post('/api/maintenance/action/<action>')
 def action(action):
-    if not authed():return jsonify({'ok':False,'error':'Maintenance authentication required.'}),401
     if action not in ALLOWED:return jsonify({'ok':False,'error':'Action not allowed.'}),400
+    if action not in READ_ONLY and not authed():return jsonify({'ok':False,'error':'Maintenance authentication required.'}),401
     if action in {'reboot','shutdown'}:
         body=request.get_json(silent=True) or {};pw=str(body.get('password',''));confirm=str(body.get('confirm','')).strip().upper();need=action.upper()
         if not valid_password(pw):return jsonify({'ok':False,'error':'Password confirmation required for node power action.'}),401
