@@ -1,0 +1,14 @@
+[Unit]
+Description=Project Odin Heimdall Radio Mode State
+After=network-online.target heimdall.service
+Requires=heimdall.service
+
+[Service]
+Type=oneshot
+User=nabzaf
+WorkingDirectory=/home/nabzaf/Heimdall/project_heimdall
+ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/radio_mode_manager.py --status
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
