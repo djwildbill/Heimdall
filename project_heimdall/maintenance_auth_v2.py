@@ -8,6 +8,8 @@ from werkzeug.security import check_password_hash
 BASE=Path(__file__).resolve().parent
 AUTH_FILE=BASE/'maintenance_auth.json'
 HELPER='/usr/local/sbin/heimdall-maintenance'
+RADIO_HELPER='/usr/local/sbin/heimdall-radio-control'
+RECOVERY_HELPER='/usr/local/sbin/heimdall-recovery'
 SESSION_MINUTES=15
 ALLOWED={'doctor','restart-backend','restart-ui','repair-db','check-update','apply-update','backup','reboot','shutdown'}
 READ_ONLY={'doctor','check-update'}
@@ -24,14 +26,31 @@ def valid_password(p):
     h=load_auth().get('password_hash');return bool(h and check_password_hash(h,p or ''))
 def authed():return bool(session.get('maintenance_authenticated')) and time.time()-float(session.get('authenticated_at',0))<=SESSION_MINUTES*60
 
+def run_cmd(args,input_text=None,timeout=120):
+    try:
+        p=subprocess.run(args,input=input_text,capture_output=True,text=True,timeout=timeout)
+        out=((p.stdout or '')+('\n'+p.stderr if p.stderr else '')).strip()
+        return p.returncode,out
+    except subprocess.TimeoutExpired:return 124,'command timed out'
+    except Exception as e:return 125,str(e)
+
 def run_helper(action):
     if action not in ALLOWED:return 'Action not allowed',400
+    code,out=run_cmd(['sudo',HELPER,action])
+    return out or f'{action}: completed',(200 if code==0 else 500)
+
+def auth_from_body(body):
+    pw=str((body or {}).get('password',''))
+    return valid_password(pw)
+
+def command_json(args,input_text=None):
+    code,out=run_cmd(args,input_text=input_text)
+    if code:return {'ok':False,'error':out or 'command failed'},500
     try:
-        p=subprocess.run(['sudo',HELPER,action],capture_output=True,text=True,timeout=120)
-        out=((p.stdout or '')+('\n'+p.stderr if p.stderr else '')).strip()
-        return out or f'{action}: completed',(200 if p.returncode==0 else 500)
-    except subprocess.TimeoutExpired:return f'{action}: timed out',504
-    except Exception as e:return str(e),500
+        data=json.loads(out or '{}')
+        if isinstance(data,dict):data.setdefault('ok',True)
+        return data,200
+    except Exception:return {'ok':True,'output':out},200
 
 @app.get('/api/maintenance/status')
 def status():return jsonify({'configured':configured(),'authenticated':authed(),'session_minutes':SESSION_MINUTES,'read_only_without_password':sorted(READ_ONLY)})
@@ -53,4 +72,42 @@ def action(action):
         if not valid_password(pw):return jsonify({'ok':False,'error':'Password confirmation required for node power action.'}),401
         if confirm!=need:return jsonify({'ok':False,'error':f'Type {need} to confirm this action.'}),400
     out,code=run_helper(action);return jsonify({'ok':code==200,'action':action,'output':out}),code
+
+# Local control bridge used by the hardened Bluetooth daemon.
+# This Flask service only listens on 127.0.0.1, so these endpoints are not
+# exposed over Wi-Fi. Read-only status is public locally; changes require the
+# node's maintenance password in the JSON body.
+@app.get('/api/control/radio/status')
+def control_radio_status():
+    data,code=command_json(['sudo',RADIO_HELPER,'status']);return jsonify(data),code
+
+@app.post('/api/control/radio/mode')
+def control_radio_mode():
+    body=request.get_json(silent=True) or {}
+    if not auth_from_body(body):return jsonify({'ok':False,'error':'maintenance authentication required'}),401
+    mode=str(body.get('mode','')).strip().lower()
+    if mode not in {'connected','survey','field'}:return jsonify({'ok':False,'error':'mode must be connected, survey, or field'}),400
+    data,code=command_json(['sudo',RADIO_HELPER,mode]);data['mode']=mode;return jsonify(data),code
+
+@app.get('/api/control/recovery/status')
+def control_recovery_status():
+    data,code=command_json(['sudo',RECOVERY_HELPER,'status']);return jsonify(data),code
+
+@app.post('/api/control/recovery/action')
+def control_recovery_action():
+    body=request.get_json(silent=True) or {}
+    if not auth_from_body(body):return jsonify({'ok':False,'error':'maintenance authentication required'}),401
+    action=str(body.get('action','')).strip().lower()
+    if action in {'start','stop'}:
+        data,code=command_json(['sudo',RECOVERY_HELPER,action]);return jsonify(data),code
+    if action=='connect-saved':
+        profile=str(body.get('profile','')).strip()
+        if not profile:return jsonify({'ok':False,'error':'profile required'}),400
+        data,code=command_json(['sudo',RECOVERY_HELPER,'connect-saved',profile]);return jsonify(data),code
+    if action=='connect-new':
+        ssid=str(body.get('ssid','')).strip();wifi_password=str(body.get('wifi_password',''))
+        if not ssid:return jsonify({'ok':False,'error':'ssid required'}),400
+        data,code=command_json(['sudo',RECOVERY_HELPER,'connect-new',ssid],input_text=wifi_password+'\n');return jsonify(data),code
+    return jsonify({'ok':False,'error':'Action not allowed'}),400
+
 if __name__=='__main__':app.run(host='127.0.0.1',port=8090,debug=False,use_reloader=False)
