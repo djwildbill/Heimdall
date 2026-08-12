@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import threading
 import time
 
@@ -12,7 +11,7 @@ from pwnagotchi.ui.components import Line, Text
 
 class Plugin(plugins.Plugin):
     __author__ = "Project Odin"
-    __version__ = "0.1.0"
+    __version__ = "0.1.1"
     __license__ = "GPL3"
     __description__ = "High-contrast live Heimdall dashboard for the 250x122 Waveshare display."
 
@@ -25,9 +24,7 @@ class Plugin(plugins.Plugin):
         self.refresh_seconds = 5
         self._stop = threading.Event()
         self._thread = None
-        self._last_handshake = 0
 
-        # Thick, readable fonts for a small e-paper panel.
         self.font_node = ImageFont.truetype("DejaVuSansMono-Bold", 17)
         self.font_title = ImageFont.truetype("DejaVuSansMono-Bold", 10)
         self.font_stat = ImageFont.truetype("DejaVuSansMono-Bold", 11)
@@ -53,17 +50,18 @@ class Plugin(plugins.Plugin):
                 "[heimdall-display] display is %sx%s; optimized layout expects 250x122",
                 ui.width(), ui.height())
 
-        # Remove the stock Pwnagotchi text blocks. Keep the state key 'face'
-        # but replace its widget so core mood changes still animate Josh.
+        # View.has_element() in the inherited runtime does not return its
+        # boolean result, so remove stock elements directly and ignore missing
+        # keys. This guarantees the old PWN/status/IP layout cannot bleed
+        # through underneath Josh's dashboard.
         for key in (
             "channel", "aps", "uptime", "line1", "line2", "face",
             "friend_face", "friend_name", "name", "status", "shakes", "mode",
             "sta",
         ):
             try:
-                if ui.has_element(key):
-                    ui.remove_element(key)
-            except Exception:
+                ui.remove_element(key)
+            except (KeyError, TypeError):
                 pass
 
         ui.add_element("hd_node", Text("OVN-002 JOSH", (4, -1), self.font_node))
@@ -71,11 +69,10 @@ class Plugin(plugins.Plugin):
         ui.add_element("hd_mode", Text("SENTINEL", (186, 4), self.font_label))
         ui.add_element("hd_topline", Line((0, 30, 250, 30), width=2))
 
-        # Main face stays in the middle of the display.
+        # Core Pwnagotchi mood events continue to update this key, but the face
+        # is now large and centered instead of being squeezed into a corner.
         ui.add_element("face", Text("(•‿‿•)", (77, 36), self.font_face))
 
-        # Left / right high-value counters. No icons: text stays readable on
-        # real hardware and wastes less space.
         ui.add_element("hd_net", Text("NET 0", (4, 37), self.font_stat))
         ui.add_element("hd_cli", Text("CLI 0", (4, 53), self.font_stat))
         ui.add_element("hd_cap", Text("CAP 0", (4, 69), self.font_stat))
@@ -86,8 +83,8 @@ class Plugin(plugins.Plugin):
 
         ui.add_element("hd_midline", Line((0, 87, 250, 87), width=2))
 
-        # Pwnagotchi-style useful information: current observed SSID and
-        # handshake/capture state. No management IP or 'whitelist' label.
+        # Useful Pwn-style field data. Management IP and whitelist wording are
+        # intentionally absent from the physical display.
         ui.add_element("hd_ssid_label", Text("SSID", (4, 89), self.font_label))
         ui.add_element("hd_ssid", Text("--", (4, 99), self.font_value))
         ui.add_element("hd_hs_label", Text("HANDSHAKE", (151, 89), self.font_label))
@@ -97,8 +94,8 @@ class Plugin(plugins.Plugin):
         ui.add_element("hd_footer", Text("BRIDGE LIVE", (4, 112), self.font_footer))
         ui.add_element("hd_up", Text("UP --", (176, 112), self.font_footer))
 
-        # Invisible changing value used only to make the e-paper redraw on a
-        # predictable cadence while ui.fps remains 0 for conservative wear.
+        # Hidden state element used to trigger a partial e-paper redraw while
+        # ui.fps remains 0. This gives live data without the stock cursor blink.
         ui.add_element("hd_tick", Text("", (400, 400), self.font_label))
 
         self._stop.clear()
@@ -142,13 +139,9 @@ class Plugin(plugins.Plugin):
             ui.set("hd_footer", "BRIDGE LIVE")
 
     def on_handshake(self, agent, filename, access_point, client_station):
-        self._last_handshake = time.time()
+        # Make a new capture visible immediately instead of waiting for the
+        # next five-second timer tick.
         self._force_refresh()
-
-    def on_wifi_update(self, agent, access_points):
-        # Telemetry writes first/alongside this callback; general refreshes are
-        # throttled by the timer to avoid hammering the e-paper panel.
-        pass
 
     def on_unload(self, ui):
         self._stop.set()
@@ -235,8 +228,6 @@ class Plugin(plugins.Plugin):
 
     @staticmethod
     def _battery_text(health):
-        # PiSugar battery integration can populate battery_percent in health
-        # later. Until then we display -- rather than invent a value.
         value = health.get("battery_percent")
         try:
             return "%d%%" % int(round(float(value)))
