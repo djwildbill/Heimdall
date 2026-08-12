@@ -27,9 +27,10 @@ from heimdall.display.state import HeimdallState
 from heimdall.display.telemetry import snapshot
 
 NODE_ID = "OVN-002"
-PERSONA = "Josh"
+PERSONA = "JOSH"
 VERSION = "0.1.0-alpha"
-REFRESH_SECONDS = 60
+POLL_SECONDS = 5
+FORCE_REFRESH_SECONDS = 60
 LOCK_PATH = "/tmp/heimdall-display.lock"
 
 
@@ -42,6 +43,25 @@ def get_font(name: str, size: int):
         if os.path.exists(path):
             return ImageFont.truetype(path, size)
     return ImageFont.load_default()
+
+
+def text_width(draw, text, font):
+    box = draw.textbbox((0, 0), str(text), font=font)
+    return box[2] - box[0]
+
+
+def centered(draw, y, text, font, width=250, fill=0):
+    x = max(0, (width - text_width(draw, text, font)) // 2)
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def clip_text(draw, text, font, max_width):
+    text = str(text or "--")
+    if text_width(draw, text, font) <= max_width:
+        return text
+    while text and text_width(draw, text + "…", font) > max_width:
+        text = text[:-1]
+    return (text + "…") if text else "--"
 
 
 def choose_state(josh: HeimdallState, data: dict, previous_captures: int) -> int:
@@ -66,44 +86,74 @@ def choose_state(josh: HeimdallState, data: dict, previous_captures: int) -> int
         josh.bored()
     else:
         josh.normal()
-
     return captures
 
 
 def draw_dashboard(epd, josh: HeimdallState, data: dict):
+    # Waveshare 2.13 V2 is 250x122 in landscape when width/height are swapped.
     image = Image.new("1", (epd.height, epd.width), 255)
     draw = ImageDraw.Draw(image)
 
-    title = get_font("DejaVuSans-Bold", 16)
-    face_font = get_font("DejaVuSans", 19)
-    bold = get_font("DejaVuSans-Bold", 10)
-    small = get_font("DejaVuSans", 8)
+    header = get_font("DejaVuSans-Bold", 18)
+    subhead = get_font("DejaVuSans-Bold", 9)
+    face_font = get_font("DejaVuSans-Bold", 25)
+    metric = get_font("DejaVuSans-Bold", 10)
+    tiny_bold = get_font("DejaVuSans-Bold", 8)
+    tiny = get_font("DejaVuSans", 7)
 
     wireless = data["wireless"]
 
-    draw.text((4, 1), "HEIMDALL", font=title, fill=0)
-    draw.text((205, 4), data["mode"], font=bold, fill=0)
-    draw.line((4, 22, 245, 22), fill=0)
+    # Header: use the valuable top-right PWN area for the node identity instead.
+    centered(draw, 0, f"{NODE_ID} {PERSONA}", header)
+    centered(draw, 18, "HEIMDALL", subhead)
+    draw.line((4, 29, 245, 29), fill=0)
 
-    draw.text((4, 27), f"{NODE_ID}  {PERSONA}", font=bold, fill=0)
-    draw.text((118, 25), get_face(josh.state), font=face_font, fill=0)
+    # Side telemetry columns and large centered Josh face.
+    draw.line((58, 32, 58, 82), fill=0)
+    draw.line((192, 32, 192, 82), fill=0)
 
-    draw.text((4, 52), f"NET {wireless['networks']:>2}", font=bold, fill=0)
-    draw.text((65, 52), f"CLI {wireless['clients']:>2}", font=bold, fill=0)
-    draw.text((126, 52), f"CAP {wireless['captures']:>2}", font=bold, fill=0)
-    draw.text((188, 52), f"CH {str(wireless['channel']):>2}", font=bold, fill=0)
+    draw.text((5, 34), f"NET {wireless['networks']}", font=metric, fill=0)
+    draw.text((5, 51), f"CLI {wireless['clients']}", font=metric, fill=0)
+    draw.text((5, 68), f"CAP {wireless['captures']}", font=metric, fill=0)
 
+    draw.text((197, 34), f"CH {wireless['channel']}", font=metric, fill=0)
     charge_mark = "+" if data.get("charging") is True else ""
-    draw.text((4, 68), f"BAT {data['battery']}{charge_mark}", font=small, fill=0)
-    draw.text((72, 68), f"TEMP {data['temperature']}", font=small, fill=0)
-    draw.text((144, 68), f"UP {data['uptime']}", font=small, fill=0)
+    draw.text((197, 51), f"BAT {data['battery']}{charge_mark}", font=tiny_bold, fill=0)
+    draw.text((197, 68), f"TMP {data['temperature']}", font=tiny_bold, fill=0)
 
-    draw.line((4, 84, 245, 84), fill=0)
-    draw.text((4, 90), josh.message[:35], font=bold, fill=0)
-    draw.text((4, 108), f"WiFi {data['wifi']}  {data['ip']}", font=small, fill=0)
-    draw.text((190, 108), f"v{VERSION}", font=small, fill=0)
+    face = get_face(josh.state)
+    face_x0, face_x1 = 60, 190
+    face_w = text_width(draw, face, face_font)
+    draw.text((face_x0 + max(0, (face_x1 - face_x0 - face_w) // 2), 43), face, font=face_font, fill=0)
+
+    draw.line((4, 85, 245, 85), fill=0)
+
+    # Bottom telemetry: no management IP and no whitelist label.
+    draw.text((5, 88), "UP", font=tiny_bold, fill=0)
+    draw.text((20, 88), data["uptime"], font=tiny_bold, fill=0)
+
+    ssid = clip_text(draw, wireless.get("ssid", "--"), tiny_bold, 92)
+    draw.text((67, 88), "SSID", font=tiny_bold, fill=0)
+    draw.text((94, 88), ssid, font=tiny_bold, fill=0)
+
+    draw.text((199, 88), f"HS {wireless['captures']}", font=tiny_bold, fill=0)
+
+    draw.line((4, 102, 245, 102), fill=0)
+    status = "HANDSHAKE CAPTURED" if wireless["last_capture"] and (time.time() - wireless["last_capture"] < 20) else josh.message
+    status = clip_text(draw, str(status).upper(), tiny_bold, 178)
+    draw.text((5, 106), status, font=tiny_bold, fill=0)
+    draw.text((191, 108), f"v{VERSION}", font=tiny, fill=0)
 
     epd.display(epd.getbuffer(image))
+
+
+def signature(data: dict, state: str):
+    w = data["wireless"]
+    return (
+        state, data["temperature"], data["battery"], data.get("charging"), data["uptime"],
+        w["networks"], w["clients"], w["captures"], str(w["channel"]),
+        w.get("ssid"), w.get("last_handshake_ssid"), int(w.get("last_capture", 0)),
+    )
 
 
 def main():
@@ -117,15 +167,22 @@ def main():
     epd = epd2in13_V2.EPD()
     josh = HeimdallState()
     previous_captures = 0
+    previous_signature = None
+    last_refresh = 0.0
 
     try:
         while True:
             data = snapshot()
             previous_captures = choose_state(josh, data, previous_captures)
-            epd.init(epd.FULL_UPDATE)
-            draw_dashboard(epd, josh, data)
-            epd.sleep()
-            time.sleep(REFRESH_SECONDS)
+            current = signature(data, josh.state)
+            now = time.time()
+            if current != previous_signature or now - last_refresh >= FORCE_REFRESH_SECONDS:
+                epd.init(epd.FULL_UPDATE)
+                draw_dashboard(epd, josh, data)
+                epd.sleep()
+                previous_signature = current
+                last_refresh = now
+            time.sleep(POLL_SECONDS)
     except KeyboardInterrupt:
         pass
     finally:
