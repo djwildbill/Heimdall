@@ -8,7 +8,7 @@ import pwnagotchi.plugins as plugins
 
 class HeimdallTelemetry(plugins.Plugin):
     __author__ = "Project Odin"
-    __version__ = "0.2.0"
+    __version__ = "0.2.1"
     __license__ = "GPL3"
     __description__ = "Feeds live Pwnagotchi wireless state into Heimdall telemetry."
 
@@ -22,12 +22,25 @@ class HeimdallTelemetry(plugins.Plugin):
         self.last_handshake_ssid = "--"
         self.last_capture = 0
         self.last_activity = 0
+        self._protected = set()
+
+    @staticmethod
+    def _norm(value):
+        return str(value or "").strip().lower()
 
     def on_loaded(self):
         self.state_path = self.options.get("state_path", self.state_path)
         os.makedirs(os.path.dirname(self.state_path), exist_ok=True)
         self._write()
         logging.info("Heimdall telemetry writing to %s", self.state_path)
+
+    def on_config_changed(self, config):
+        values = []
+        main = config.get("main", {})
+        values.extend(main.get("whitelist", []) or [])
+        values.extend(main.get("plugins", {}).get("grid", {}).get("exclude", []) or [])
+        values.extend(main.get("plugins", {}).get("heimdall-privacy", {}).get("protected", []) or [])
+        self._protected = {self._norm(v) for v in values if self._norm(v)}
 
     def on_ready(self, agent):
         self._refresh_from_agent(agent)
@@ -46,8 +59,7 @@ class HeimdallTelemetry(plugins.Plugin):
             self.clients += len(clients)
 
         # wifi_update receives the post-policy list from the agent. Protected /
-        # whitelisted SSIDs have already been excluded, so the display never
-        # needs to expose Josh's management/private network name.
+        # whitelisted SSIDs have already been excluded.
         focus = self._focus_ap(aps)
         if focus:
             self.ssid = self._ap_name(focus)
@@ -58,9 +70,8 @@ class HeimdallTelemetry(plugins.Plugin):
         self._write()
 
     def on_unfiltered_ap_list(self, agent, access_points):
-        # Preserve only aggregate counts here. Never derive the displayed SSID
-        # from the unfiltered list because that list can contain protected
-        # networks.
+        # Aggregate counts may represent everything in RF range, but never use
+        # this unfiltered list to choose the SSID shown on Josh's screen.
         if access_points is not None:
             self.networks = len(access_points)
             self.clients = 0
@@ -71,6 +82,11 @@ class HeimdallTelemetry(plugins.Plugin):
             self._write()
 
     def on_handshake(self, agent, filename, access_point, client_station):
+        # Passive capture callbacks can occur even for protected networks.
+        # Do not put a protected identifier onto the physical display.
+        if self._is_protected(access_point):
+            return
+
         self.captures += 1
         self.last_capture = time.time()
         self.last_activity = self.last_capture
@@ -104,14 +120,23 @@ class HeimdallTelemetry(plugins.Plugin):
             if isinstance(handshakes, dict):
                 self.captures = len(handshakes)
 
-            last_pwnd = getattr(agent, "_last_pwnd", None)
-            if last_pwnd and self.last_handshake_ssid == "--":
-                self.last_handshake_ssid = str(last_pwnd)
-
             self.last_activity = time.time()
         except Exception as exc:
             logging.debug("Heimdall telemetry session refresh failed: %s", exc)
         self._write()
+
+    def _is_protected(self, access_point):
+        if not self._protected:
+            return False
+        if isinstance(access_point, dict):
+            candidates = (
+                access_point.get("hostname"), access_point.get("essid"),
+                access_point.get("ssid"), access_point.get("mac"),
+                access_point.get("bssid"),
+            )
+        else:
+            candidates = (access_point,)
+        return any(self._norm(v) in self._protected for v in candidates if v)
 
     @staticmethod
     def _ap_name(ap):
