@@ -7,6 +7,7 @@ BACKUPS="$BASE/backups"
 ACTION="${1:-}"
 
 run_as_node() { sudo -u nabzaf "$@"; }
+
 make_backup() {
   mkdir -p "$BACKUPS"
   chown nabzaf:nabzaf "$BACKUPS"
@@ -16,8 +17,6 @@ make_backup() {
   SNAP="$(mktemp -d /tmp/heimdall-backup.XXXXXX)"
   trap 'rm -rf "$SNAP"' RETURN
 
-  # Snapshot node-local state before tar so live files cannot change underneath
-  # the archiver. SQLite gets its own consistent online backup.
   [ -f "$BASE/config.json" ] && cp -a "$BASE/config.json" "$SNAP/config.json"
   [ -f "$BASE/maintenance_auth.json" ] && cp -a "$BASE/maintenance_auth.json" "$SNAP/maintenance_auth.json"
   [ -f "$BASE/radio_mode.json" ] && cp -a "$BASE/radio_mode.json" "$SNAP/radio_mode.json"
@@ -47,8 +46,91 @@ PY
   fi
 
   tar -C "$SNAP" -czf "$OUT" .
-  chmod 600 "$OUT"; chown nabzaf:nabzaf "$OUT"
+  chmod 600 "$OUT"
+  chown nabzaf:nabzaf "$OUT"
   echo "$OUT"
+}
+
+apply_update() {
+  echo "phase=backup"
+  make_backup
+
+  echo "phase=fetch"
+  run_as_node git -C "$REPO" fetch origin heimdall-dev
+
+  LOCAL="$(run_as_node git -C "$REPO" rev-parse HEAD)"
+  REMOTE="$(run_as_node git -C "$REPO" rev-parse origin/heimdall-dev)"
+  echo "local_before=$LOCAL"
+  echo "remote=$REMOTE"
+
+  # Heimdall nodes are appliances: repository code is authoritative while
+  # node-local state lives in ignored/runtime files and is backed up above.
+  # This avoids a stale locally edited tracked file permanently blocking
+  # field updates.
+  if [ -n "$(run_as_node git -C "$REPO" status --porcelain --untracked-files=no)" ]; then
+    echo "warning=discarding tracked local code changes after backup"
+  fi
+
+  echo "phase=sync"
+  run_as_node git -C "$REPO" reset --hard origin/heimdall-dev
+
+  echo "phase=install"
+  install -m 0644 "$BASE/systemd/heimdall.service" /etc/systemd/system/heimdall.service
+  install -m 0644 "$BASE/systemd/heimdall-maintenance.service" /etc/systemd/system/heimdall-maintenance.service
+  install -m 0644 "$BASE/systemd/heimdall-ui.service" /etc/systemd/system/heimdall-ui.service
+  install -m 0644 "$BASE/systemd/heimdall-radio.service" /etc/systemd/system/heimdall-radio.service
+  install -m 0644 "$BASE/systemd/heimdall-recovery.service" /etc/systemd/system/heimdall-recovery.service
+  install -m 0644 "$BASE/systemd/heimdall-bluetooth.service" /etc/systemd/system/heimdall-bluetooth.service
+  install -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
+  install -m 0755 "$BASE/recovery_helper.sh" /usr/local/sbin/heimdall-recovery
+  install -m 0755 "$BASE/radio_helper.sh" /usr/local/sbin/heimdall-radio-control
+
+  echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-recovery *' > /etc/sudoers.d/heimdall-recovery
+  echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-radio-control *' > /etc/sudoers.d/heimdall-radio
+  chmod 0440 /etc/sudoers.d/heimdall-recovery /etc/sudoers.d/heimdall-radio
+
+  systemctl enable --now bluetooth.service >/dev/null 2>&1 || true
+  bluetoothctl power on >/dev/null 2>&1 || true
+  bluetoothctl system-alias JOSH-OVN-002 >/dev/null 2>&1 || true
+  bluetoothctl pairable on >/dev/null 2>&1 || true
+  bluetoothctl discoverable on >/dev/null 2>&1 || true
+  if command -v sdptool >/dev/null 2>&1; then
+    sdptool add --channel=22 SP >/dev/null 2>&1 || true
+  fi
+
+  systemctl daemon-reload
+  systemctl enable heimdall-radio.service heimdall-recovery.service heimdall-bluetooth.service >/dev/null 2>&1 || true
+
+  if [ -x "$REPO/ops/heimdall-deploy-root" ]; then
+    "$REPO/ops/heimdall-deploy-root"
+  fi
+
+  NEW="$(run_as_node git -C "$REPO" rev-parse HEAD)"
+  echo "local_after=$NEW"
+  echo "phase=restart"
+
+  # Restart the control-plane services last. The asynchronous wrapper lets the
+  # web/Bluetooth request return before these connections are intentionally lost.
+  systemctl restart heimdall.service || true
+  systemctl restart heimdall-radio.service || true
+  systemctl restart heimdall-recovery.service || true
+  systemctl restart heimdall-ui.service || true
+  systemctl restart heimdall-bluetooth.service || true
+  systemctl restart heimdall-maintenance.service || true
+}
+
+queue_update() {
+  UNIT="heimdall-update-$(date +%s)"
+  if command -v systemd-run >/dev/null 2>&1; then
+    systemd-run --quiet --collect --unit="$UNIT" /usr/local/sbin/heimdall-maintenance apply-update
+    echo "status=update-started"
+    echo "unit=$UNIT"
+    echo "message=Josh will restart control services when the update finishes; reconnect and run check-update."
+  else
+    nohup /usr/local/sbin/heimdall-maintenance apply-update >/var/log/heimdall-update.log 2>&1 </dev/null &
+    echo "status=update-started"
+    echo "pid=$!"
+  fi
 }
 
 case "$ACTION" in
@@ -58,8 +140,6 @@ case "$ACTION" in
     systemctl restart heimdall.service
     systemctl --no-pager --full status heimdall.service | sed -n '1,10p' ;;
   restart-ui)
-    # Restart both the web control UI and the native Pwnagotchi display runtime.
-    # This is the phone/Bluetooth-safe way to force Josh's e-paper plugin to reload.
     systemctl restart heimdall-ui.service
     if systemctl list-unit-files pwnagotchi.service >/dev/null 2>&1; then
       systemctl restart pwnagotchi.service || true
@@ -76,50 +156,19 @@ case "$ACTION" in
     LOCAL="$(run_as_node git -C "$REPO" rev-parse HEAD)"
     REMOTE="$(run_as_node git -C "$REPO" rev-parse origin/heimdall-dev)"
     echo "local=$LOCAL"; echo "remote=$REMOTE"
-    if [ "$LOCAL" = "$REMOTE" ]; then echo "status=up-to-date"; else
+    if [ "$LOCAL" = "$REMOTE" ]; then
+      echo "status=up-to-date"
+      echo "behind=0"
+      echo "ahead=0"
+    else
       echo "status=update-available"
       echo "behind=$(run_as_node git -C "$REPO" rev-list --count HEAD..origin/heimdall-dev)"
       echo "ahead=$(run_as_node git -C "$REPO" rev-list --count origin/heimdall-dev..HEAD)"
     fi ;;
   apply-update)
-    make_backup
-    run_as_node git -C "$REPO" fetch origin heimdall-dev
-    if [ -n "$(run_as_node git -C "$REPO" status --porcelain --untracked-files=no)" ]; then
-      echo "Tracked local changes detected; refusing automatic update." >&2; exit 3
-    fi
-    run_as_node git -C "$REPO" merge --ff-only origin/heimdall-dev
-    install -m 0644 "$BASE/systemd/heimdall.service" /etc/systemd/system/heimdall.service
-    install -m 0644 "$BASE/systemd/heimdall-maintenance.service" /etc/systemd/system/heimdall-maintenance.service
-    install -m 0644 "$BASE/systemd/heimdall-ui.service" /etc/systemd/system/heimdall-ui.service
-    install -m 0644 "$BASE/systemd/heimdall-radio.service" /etc/systemd/system/heimdall-radio.service
-    install -m 0644 "$BASE/systemd/heimdall-recovery.service" /etc/systemd/system/heimdall-recovery.service
-    install -m 0644 "$BASE/systemd/heimdall-bluetooth.service" /etc/systemd/system/heimdall-bluetooth.service
-    install -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
-    install -m 0755 "$BASE/recovery_helper.sh" /usr/local/sbin/heimdall-recovery
-    install -m 0755 "$BASE/radio_helper.sh" /usr/local/sbin/heimdall-radio-control
-    echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-recovery *' > /etc/sudoers.d/heimdall-recovery
-    echo 'nabzaf ALL=(root) NOPASSWD: /usr/local/sbin/heimdall-radio-control *' > /etc/sudoers.d/heimdall-radio
-    chmod 0440 /etc/sudoers.d/heimdall-recovery /etc/sudoers.d/heimdall-radio
-    systemctl enable --now bluetooth.service >/dev/null 2>&1 || true
-    bluetoothctl power on >/dev/null 2>&1 || true
-    bluetoothctl system-alias JOSH-OVN-002 >/dev/null 2>&1 || true
-    bluetoothctl pairable on >/dev/null 2>&1 || true
-    bluetoothctl discoverable on >/dev/null 2>&1 || true
-    if command -v sdptool >/dev/null 2>&1; then sdptool add --channel=22 SP >/dev/null 2>&1 || true; fi
-    systemctl daemon-reload
-    systemctl enable heimdall-radio.service heimdall-recovery.service heimdall-bluetooth.service >/dev/null 2>&1 || true
-
-    # Deploy repo-level Heimdall/Pwnagotchi presentation assets and plugins.
-    if [ -x "$REPO/ops/heimdall-deploy-root" ]; then
-      "$REPO/ops/heimdall-deploy-root"
-    fi
-
-    systemctl restart heimdall.service
-    systemctl restart heimdall-maintenance.service
-    systemctl restart heimdall-radio.service
-    systemctl restart heimdall-recovery.service
-    systemctl restart heimdall-bluetooth.service
-    systemctl restart heimdall-ui.service ;;
+    apply_update ;;
+  apply-update-async)
+    queue_update ;;
   backup)
     make_backup ;;
   reboot)
@@ -127,6 +176,6 @@ case "$ACTION" in
   shutdown)
     echo "Shutting down OVN-002..."; systemctl poweroff ;;
   *)
-    echo "Allowed actions: doctor restart-backend restart-ui repair-db check-update apply-update backup reboot shutdown" >&2
+    echo "Allowed actions: doctor restart-backend restart-ui repair-db check-update apply-update apply-update-async backup reboot shutdown" >&2
     exit 2 ;;
 esac
