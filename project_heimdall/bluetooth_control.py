@@ -74,6 +74,8 @@ def handle(req):
 
     password = str(req.get('password', ''))
 
+    if cmd == 'restart-ui':
+        return http_json('POST', '/api/control/ui/restart', {'password': password})
     if cmd == 'set-mode':
         mode = str(req.get('mode', '')).strip().lower()
         if mode not in {'connected', 'survey', 'field'}:
@@ -98,9 +100,6 @@ def handle(req):
             'wifi_password': wifi_password, 'password': password,
         })
     if cmd == 'backup':
-        # Backup remains an authenticated maintenance action. The web app uses
-        # session auth; Bluetooth sends the local password directly, so backup
-        # is intentionally left for Companion v2 instead of weakening auth.
         return {'ok': False, 'error': 'backup over Bluetooth is not enabled yet'}
 
     return {'ok': False, 'error': 'unknown command'}
