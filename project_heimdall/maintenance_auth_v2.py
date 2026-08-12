@@ -110,4 +110,11 @@ def control_recovery_action():
         data,code=command_json(['sudo',RECOVERY_HELPER,'connect-new',ssid],input_text=wifi_password+'\n');return jsonify(data),code
     return jsonify({'ok':False,'error':'Action not allowed'}),400
 
+@app.post('/api/control/ui/restart')
+def control_ui_restart():
+    body=request.get_json(silent=True) or {}
+    if not auth_from_body(body):return jsonify({'ok':False,'error':'maintenance authentication required'}),401
+    out,code=run_helper('restart-ui')
+    return jsonify({'ok':code==200,'action':'restart-ui','output':out}),code
+
 if __name__=='__main__':app.run(host='127.0.0.1',port=8090,debug=False,use_reloader=False)
