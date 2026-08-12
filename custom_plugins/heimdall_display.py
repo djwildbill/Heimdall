@@ -6,54 +6,145 @@ import time
 from PIL import ImageFont
 
 import pwnagotchi.plugins as plugins
-from pwnagotchi.ui.components import Line, Text
+from pwnagotchi.ui.components import Widget
+
+
+BLACK = 0
+WHITE = 255
+
+
+class HeimdallDashboard(Widget):
+    """Draw the entire 250x122 Josh dashboard as one coherent screen."""
+
+    def __init__(self, plugin):
+        super().__init__((0, 0), BLACK)
+        self.plugin = plugin
+
+    def draw(self, canvas, drawer):
+        p = self.plugin
+        w, h = canvas.size
+
+        # This layout is designed for the Waveshare 2.13in V2 landscape canvas
+        # used by Josh: 250 x 122 pixels.
+        drawer.rectangle((0, 0, w - 1, h - 1), fill=WHITE, outline=BLACK)
+
+        # ------------------------------------------------------------------
+        # Header: large node identity, Heimdall directly beneath it.
+        # ------------------------------------------------------------------
+        p._center_text(drawer, "OVN-002 JOSH", 1, p.font_node)
+        p._center_text(drawer, "HEIMDALL", 18, p.font_title)
+        drawer.line((4, 30, w - 5, 30), fill=BLACK, width=2)
+
+        # Main three-column area.
+        left_x2 = 54
+        right_x1 = 194
+        drawer.line((left_x2, 33, left_x2, 87), fill=BLACK, width=1)
+        drawer.line((right_x1, 33, right_x1, 87), fill=BLACK, width=1)
+
+        # Left column: NET / CLI / CAP with simple high-contrast glyphs.
+        p._draw_wifi(drawer, 27, 39)
+        p._center_text_in(drawer, "NET %d" % p.networks, 1, left_x2 - 1, 50, p.font_stat)
+        drawer.line((5, 58, left_x2 - 5, 58), fill=BLACK, width=1)
+
+        p._draw_terminal(drawer, 18, 62)
+        p._center_text_in(drawer, "CLI %d" % p.clients, 1, left_x2 - 1, 72, p.font_stat)
+
+        p._draw_target(drawer, 27, 82)
+        p._center_text_in(drawer, "CAP %d" % p.captures, 1, left_x2 - 1, 82, p.font_stat)
+
+        # Center: Josh's face is intentionally the visual focus.
+        p._draw_face(drawer, 124, 59)
+
+        # Right column: channel, battery, temperature.
+        p._draw_radio(drawer, 221, 40)
+        p._center_text_in(drawer, "CH %s" % p.channel, right_x1 + 1, w - 2, 50, p.font_stat)
+        drawer.line((right_x1 + 5, 58, w - 5, 58), fill=BLACK, width=1)
+
+        p._draw_battery(drawer, 202, 65, p.battery_percent)
+        bat = "-- %" if p.battery_percent is None else "%d%%" % p.battery_percent
+        drawer.text((220, 62), bat, font=p.font_stat, fill=BLACK)
+        drawer.line((right_x1 + 5, 76, w - 5, 76), fill=BLACK, width=1)
+
+        p._draw_thermometer(drawer, 204, 80)
+        drawer.text((218, 79), "TEMP", font=p.font_label, fill=BLACK)
+        drawer.text((218, 89), "%sC" % p.temperature, font=p.font_stat, fill=BLACK)
+
+        # ------------------------------------------------------------------
+        # Lower information row: uptime / SSID / handshake.
+        # No management IP and no whitelist wording.
+        # ------------------------------------------------------------------
+        drawer.line((4, 92, w - 5, 92), fill=BLACK, width=2)
+        drawer.line((69, 94, 69, 109), fill=BLACK, width=1)
+        drawer.line((184, 94, 184, 109), fill=BLACK, width=1)
+
+        p._center_text_in(drawer, "UPTIME", 1, 68, 94, p.font_label)
+        p._center_text_in(drawer, p.uptime, 1, 68, 102, p.font_value)
+
+        p._center_text_in(drawer, "SSID", 70, 183, 94, p.font_label)
+        p._center_text_in(drawer, p._fit(p.ssid, 16), 70, 183, 102, p.font_value)
+
+        p._center_text_in(drawer, "HANDSHAKE", 185, w - 2, 94, p.font_label)
+        p._center_text_in(drawer, str(p.captures), 185, w - 2, 102, p.font_value)
+
+        # Footer status + version.
+        drawer.line((4, 111, w - 5, 111), fill=BLACK, width=1)
+        p._draw_check(drawer, 11, 116)
+        drawer.text((22, 112), p.footer, font=p.font_footer, fill=BLACK)
+        version = p.version_text
+        tw = p._text_width(drawer, version, p.font_small)
+        drawer.text((w - tw - 5, 113), version, font=p.font_small, fill=BLACK)
 
 
 class Plugin(plugins.Plugin):
     __author__ = "Project Odin"
-    __version__ = "0.1.1"
+    __version__ = "0.2.0"
     __license__ = "GPL3"
-    __description__ = "High-contrast live Heimdall dashboard for the 250x122 Waveshare display."
+    __description__ = "Josh high-contrast full-screen Heimdall e-paper dashboard."
 
     def __init__(self):
         self.options = {}
         self.ui = None
         self.state_path = "/var/lib/heimdall/wireless.json"
         self.health_path = "/var/lib/heimdall/health.json"
-        self.mode_path = "/var/lib/heimdall/mode"
         self.refresh_seconds = 5
         self._stop = threading.Event()
         self._thread = None
 
-        self.font_node = ImageFont.truetype("DejaVuSansMono-Bold", 17)
+        # Bold fonts throughout: designed for readability on a physical 2.13in
+        # e-paper panel instead of maximizing the amount of tiny text.
+        self.font_node = ImageFont.truetype("DejaVuSansMono-Bold", 18)
         self.font_title = ImageFont.truetype("DejaVuSansMono-Bold", 10)
-        self.font_stat = ImageFont.truetype("DejaVuSansMono-Bold", 11)
-        self.font_label = ImageFont.truetype("DejaVuSansMono-Bold", 9)
-        self.font_value = ImageFont.truetype("DejaVuSansMono-Bold", 10)
-        self.font_footer = ImageFont.truetype("DejaVuSansMono-Bold", 9)
-        self.font_face = ImageFont.truetype("DejaVuSansMono-Bold", 30)
+        self.font_stat = ImageFont.truetype("DejaVuSansMono-Bold", 10)
+        self.font_label = ImageFont.truetype("DejaVuSansMono-Bold", 8)
+        self.font_value = ImageFont.truetype("DejaVuSansMono-Bold", 9)
+        self.font_footer = ImageFont.truetype("DejaVuSansMono-Bold", 10)
+        self.font_small = ImageFont.truetype("DejaVuSansMono-Bold", 7)
+
+        self.networks = 0
+        self.clients = 0
+        self.captures = 0
+        self.channel = "--"
+        self.ssid = "--"
+        self.temperature = "--"
+        self.battery_percent = None
+        self.uptime = "--"
+        self.footer = "BRIDGE LIVE"
+        self.version_text = "v0.1.0-alpha"
 
     def on_loaded(self):
         self.state_path = str(self.options.get("state_path", self.state_path))
         self.health_path = str(self.options.get("health_path", self.health_path))
-        self.mode_path = str(self.options.get("mode_path", self.mode_path))
         try:
-            self.refresh_seconds = max(2, int(self.options.get("refresh_seconds", 5)))
+            self.refresh_seconds = max(3, int(self.options.get("refresh_seconds", 5)))
         except (TypeError, ValueError):
             self.refresh_seconds = 5
-        logging.info("[heimdall-display] centered live dashboard enabled")
+        logging.info("[heimdall-display] reference-layout dashboard enabled")
 
     def on_ui_setup(self, ui):
         self.ui = ui
-        if ui.width() < 240 or ui.height() < 115:
-            logging.warning(
-                "[heimdall-display] display is %sx%s; optimized layout expects 250x122",
-                ui.width(), ui.height())
 
-        # View.has_element() in the inherited runtime does not return its
-        # boolean result, so remove stock elements directly and ignore missing
-        # keys. This guarantees the old PWN/status/IP layout cannot bleed
-        # through underneath Josh's dashboard.
+        # Remove every stock Pwnagotchi widget so PWN, management IP, old status
+        # text, and the small legacy face cannot remain underneath the new UI.
         for key in (
             "channel", "aps", "uptime", "line1", "line2", "face",
             "friend_face", "friend_name", "name", "status", "shakes", "mode",
@@ -61,86 +152,27 @@ class Plugin(plugins.Plugin):
         ):
             try:
                 ui.remove_element(key)
-            except (KeyError, TypeError):
+            except Exception:
                 pass
 
-        ui.add_element("hd_node", Text("OVN-002 JOSH", (4, -1), self.font_node))
-        ui.add_element("hd_title", Text("HEIMDALL", (5, 18), self.font_title))
-        ui.add_element("hd_mode", Text("SENTINEL", (186, 4), self.font_label))
-        ui.add_element("hd_topline", Line((0, 30, 250, 30), width=2))
-
-        # Core Pwnagotchi mood events continue to update this key, but the face
-        # is now large and centered instead of being squeezed into a corner.
-        ui.add_element("face", Text("(•‿‿•)", (77, 36), self.font_face))
-
-        ui.add_element("hd_net", Text("NET 0", (4, 37), self.font_stat))
-        ui.add_element("hd_cli", Text("CLI 0", (4, 53), self.font_stat))
-        ui.add_element("hd_cap", Text("CAP 0", (4, 69), self.font_stat))
-
-        ui.add_element("hd_ch", Text("CH --", (196, 37), self.font_stat))
-        ui.add_element("hd_temp", Text("T --C", (190, 53), self.font_stat))
-        ui.add_element("hd_bat", Text("BAT --", (190, 69), self.font_stat))
-
-        ui.add_element("hd_midline", Line((0, 87, 250, 87), width=2))
-
-        # Useful Pwn-style field data. Management IP and whitelist wording are
-        # intentionally absent from the physical display.
-        ui.add_element("hd_ssid_label", Text("SSID", (4, 89), self.font_label))
-        ui.add_element("hd_ssid", Text("--", (4, 99), self.font_value))
-        ui.add_element("hd_hs_label", Text("HANDSHAKE", (151, 89), self.font_label))
-        ui.add_element("hd_hs", Text("0  --", (151, 99), self.font_value))
-
-        ui.add_element("hd_bottomline", Line((0, 111, 250, 111), width=1))
-        ui.add_element("hd_footer", Text("BRIDGE LIVE", (4, 112), self.font_footer))
-        ui.add_element("hd_up", Text("UP --", (176, 112), self.font_footer))
-
-        # Hidden state element used to trigger a partial e-paper redraw while
-        # ui.fps remains 0. This gives live data without the stock cursor blink.
-        ui.add_element("hd_tick", Text("", (400, 400), self.font_label))
+        ui.add_element("heimdall_dashboard", HeimdallDashboard(self))
+        self._read_live_state()
 
         self._stop.clear()
-        self._thread = threading.Thread(target=self._refresh_loop, name="heimdall-display", daemon=True)
+        self._thread = threading.Thread(
+            target=self._refresh_loop,
+            name="heimdall-display",
+            daemon=True,
+        )
         self._thread.start()
         self._force_refresh()
 
     def on_ui_update(self, ui):
-        wireless = self._read_json(self.state_path)
-        health = self._read_json(self.health_path)
-
-        networks = self._safe_int(wireless.get("networks"), 0)
-        clients = self._safe_int(wireless.get("clients"), 0)
-        captures = self._safe_int(wireless.get("captures"), 0)
-        channel = str(wireless.get("channel", "--"))
-        ssid = self._clean_ssid(wireless.get("ssid", "--"))
-        last_hs_ssid = self._clean_ssid(wireless.get("last_handshake_ssid", "--"))
-        last_capture = self._safe_float(wireless.get("last_capture"), 0)
-
-        temp = health.get("temperature_c")
-        uptime = health.get("uptime_seconds")
-
-        ui.set("hd_net", "NET %d" % networks)
-        ui.set("hd_cli", "CLI %d" % clients)
-        ui.set("hd_cap", "CAP %d" % captures)
-        ui.set("hd_ch", "CH %s" % channel)
-        ui.set("hd_temp", "T %sC" % self._temp_text(temp))
-        ui.set("hd_bat", "BAT %s" % self._battery_text(health))
-        ui.set("hd_mode", self._read_mode()[:8].upper())
-
-        ui.set("hd_ssid", self._fit(ssid, 20))
-        hs_name = last_hs_ssid if last_hs_ssid != "--" else ssid
-        ui.set("hd_hs", self._fit("%d  %s" % (captures, hs_name), 15))
-        ui.set("hd_up", "UP %s" % self._uptime_text(uptime))
-
-        if last_capture and time.time() - last_capture <= 15:
-            ui.set("hd_footer", "CAPTURED %s" % self._fit(last_hs_ssid, 14))
-        elif networks > 0:
-            ui.set("hd_footer", "OBSERVING")
-        else:
-            ui.set("hd_footer", "BRIDGE LIVE")
+        self._read_live_state()
 
     def on_handshake(self, agent, filename, access_point, client_station):
-        # Make a new capture visible immediately instead of waiting for the
-        # next five-second timer tick.
+        self._read_live_state()
+        self.footer = "HANDSHAKE CAPTURED"
         self._force_refresh()
 
     def on_unload(self, ui):
@@ -150,17 +182,121 @@ class Plugin(plugins.Plugin):
 
     def _refresh_loop(self):
         while not self._stop.wait(self.refresh_seconds):
+            self._read_live_state()
             self._force_refresh()
 
     def _force_refresh(self):
         if self.ui is None:
             return
         try:
-            self.ui.set("hd_tick", str(int(time.time())))
-            self.ui.update()
+            # Updating this full-screen widget marks the state dirty and causes
+            # the Waveshare partial refresh while ui.fps remains zero.
+            self.ui.set("heimdall_dashboard", str(time.time()))
+        except Exception:
+            # Custom widgets do not expose a simple value on all inherited
+            # Pwnagotchi runtimes; force the view update either way.
+            pass
+        try:
+            self.ui.update(force=True)
         except Exception as exc:
             logging.debug("[heimdall-display] refresh skipped: %s", exc)
 
+    def _read_live_state(self):
+        wireless = self._read_json(self.state_path)
+        health = self._read_json(self.health_path)
+
+        self.networks = self._safe_int(wireless.get("networks"), 0)
+        self.clients = self._safe_int(wireless.get("clients"), 0)
+        self.captures = self._safe_int(wireless.get("captures"), 0)
+        self.channel = str(wireless.get("channel", "--"))
+        self.ssid = self._clean_ssid(wireless.get("ssid", "--"))
+        self.temperature = self._temp_text(health.get("temperature_c"))
+        self.battery_percent = self._battery_value(health.get("battery_percent"))
+        self.uptime = self._uptime_text(health.get("uptime_seconds"))
+
+        last_capture = self._safe_float(wireless.get("last_capture"), 0)
+        if last_capture and time.time() - last_capture <= 15:
+            self.footer = "HANDSHAKE CAPTURED"
+        elif self.networks > 0:
+            self.footer = "OBSERVING"
+        else:
+            self.footer = "BRIDGE LIVE"
+
+    # ---------------------------- drawing helpers ----------------------------
+    @staticmethod
+    def _text_width(drawer, text, font):
+        box = drawer.textbbox((0, 0), str(text), font=font)
+        return box[2] - box[0]
+
+    @classmethod
+    def _center_text(cls, drawer, text, y, font):
+        width = cls._text_width(drawer, text, font)
+        drawer.text(((250 - width) // 2, y), text, font=font, fill=BLACK)
+
+    @classmethod
+    def _center_text_in(cls, drawer, text, x1, x2, y, font):
+        width = cls._text_width(drawer, text, font)
+        x = x1 + max(0, ((x2 - x1 + 1) - width) // 2)
+        drawer.text((x, y), text, font=font, fill=BLACK)
+
+    @staticmethod
+    def _draw_face(drawer, cx, cy):
+        # Two large eyes and a smile, scaled to the real 250x122 panel.
+        for ex in (cx - 32, cx + 32):
+            drawer.ellipse((ex - 13, cy - 15, ex + 13, cy + 11), fill=BLACK)
+            drawer.ellipse((ex - 8, cy - 11, ex - 1, cy - 4), fill=WHITE)
+            drawer.ellipse((ex + 5, cy + 3, ex + 8, cy + 6), fill=WHITE)
+        drawer.arc((cx - 18, cy - 2, cx + 18, cy + 22), 20, 160, fill=BLACK, width=3)
+
+    @staticmethod
+    def _draw_wifi(drawer, cx, cy):
+        drawer.arc((cx - 13, cy - 8, cx + 13, cy + 13), 205, 335, fill=BLACK, width=2)
+        drawer.arc((cx - 9, cy - 3, cx + 9, cy + 11), 205, 335, fill=BLACK, width=2)
+        drawer.ellipse((cx - 2, cy + 7, cx + 2, cy + 11), fill=BLACK)
+
+    @staticmethod
+    def _draw_terminal(drawer, x, y):
+        drawer.rectangle((x, y, x + 20, y + 10), fill=BLACK)
+        drawer.line((x + 4, y + 3, x + 8, y + 5, x + 4, y + 7), fill=WHITE, width=1)
+        drawer.line((x + 10, y + 7, x + 15, y + 7), fill=WHITE, width=1)
+
+    @staticmethod
+    def _draw_target(drawer, cx, cy):
+        drawer.ellipse((cx - 7, cy - 7, cx + 7, cy + 7), outline=BLACK, width=1)
+        drawer.ellipse((cx - 2, cy - 2, cx + 2, cy + 2), fill=BLACK)
+        drawer.line((cx - 10, cy, cx - 5, cy), fill=BLACK)
+        drawer.line((cx + 5, cy, cx + 10, cy), fill=BLACK)
+        drawer.line((cx, cy - 10, cx, cy - 5), fill=BLACK)
+        drawer.line((cx, cy + 5, cx, cy + 10), fill=BLACK)
+
+    @staticmethod
+    def _draw_radio(drawer, cx, cy):
+        drawer.line((cx, cy - 3, cx - 5, cy + 8, cx + 5, cy + 8, cx, cy - 3), fill=BLACK, width=1)
+        drawer.line((cx, cy - 3, cx, cy + 9), fill=BLACK, width=1)
+        drawer.arc((cx - 9, cy - 12, cx + 9, cy + 2), 200, 340, fill=BLACK, width=1)
+        drawer.arc((cx - 13, cy - 16, cx + 13, cy + 6), 205, 335, fill=BLACK, width=1)
+
+    @staticmethod
+    def _draw_battery(drawer, x, y, value):
+        drawer.rectangle((x, y, x + 15, y + 8), outline=BLACK, width=1)
+        drawer.rectangle((x + 16, y + 2, x + 18, y + 6), fill=BLACK)
+        if value is not None:
+            fill = max(0, min(13, int(round(13 * value / 100.0))))
+            if fill:
+                drawer.rectangle((x + 2, y + 2, x + 1 + fill, y + 6), fill=BLACK)
+
+    @staticmethod
+    def _draw_thermometer(drawer, x, y):
+        drawer.ellipse((x, y + 7, x + 7, y + 14), outline=BLACK, width=1)
+        drawer.rectangle((x + 2, y, x + 5, y + 10), outline=BLACK, width=1)
+        drawer.line((x + 3, y + 5, x + 3, y + 11), fill=BLACK, width=1)
+
+    @staticmethod
+    def _draw_check(drawer, cx, cy):
+        drawer.ellipse((cx - 7, cy - 5, cx + 7, cy + 9), fill=BLACK)
+        drawer.line((cx - 4, cy + 2, cx - 1, cy + 5, cx + 5, cy - 2), fill=WHITE, width=2)
+
+    # ------------------------------ data helpers -----------------------------
     @staticmethod
     def _read_json(path):
         try:
@@ -169,14 +305,6 @@ class Plugin(plugins.Plugin):
                 return data if isinstance(data, dict) else {}
         except (OSError, ValueError, TypeError):
             return {}
-
-    def _read_mode(self):
-        try:
-            with open(self.mode_path, "r", encoding="utf-8") as handle:
-                value = handle.read().strip()
-                return value or "sentinel"
-        except OSError:
-            return "sentinel"
 
     @staticmethod
     def _clean_ssid(value):
@@ -188,9 +316,7 @@ class Plugin(plugins.Plugin):
         text = str(text)
         if len(text) <= max_chars:
             return text
-        if max_chars <= 1:
-            return text[:max_chars]
-        return text[:max_chars - 1] + "~"
+        return text[: max(1, max_chars - 1)] + "~"
 
     @staticmethod
     def _safe_int(value, default):
@@ -214,6 +340,13 @@ class Plugin(plugins.Plugin):
             return "--"
 
     @staticmethod
+    def _battery_value(value):
+        try:
+            return max(0, min(100, int(round(float(value)))))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _uptime_text(seconds):
         try:
             seconds = int(seconds)
@@ -222,14 +355,6 @@ class Plugin(plugins.Plugin):
         days, rem = divmod(seconds, 86400)
         hours = rem // 3600
         if days:
-            return "%dd%dh" % (days, hours)
+            return "%dd %dh" % (days, hours)
         minutes = (rem % 3600) // 60
-        return "%dh%dm" % (hours, minutes)
-
-    @staticmethod
-    def _battery_text(health):
-        value = health.get("battery_percent")
-        try:
-            return "%d%%" % int(round(float(value)))
-        except (TypeError, ValueError):
-            return "--"
+        return "%dh %dm" % (hours, minutes)
