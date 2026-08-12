@@ -53,7 +53,7 @@ if [[ "$PWN_RUNTIME" -eq 1 ]]; then
 
     # Josh's inherited Pwnagotchi configuration uses hyphenated plugin names
     # (heimdall-display, heimdall-telemetry, etc.). Install a matching alias so
-    # BlueZ/Pwnagotchi plugin discovery loads the exact file the config names.
+    # Pwnagotchi plugin discovery loads the exact file the config names.
     alias_name="${base//_/-}"
     install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$alias_name"
   done
@@ -85,12 +85,21 @@ EOF
 
   # Overlay only Heimdall-owned presentation files. Keep the inherited runtime
   # available while Odin's defensive field profile disables active behavior.
+  # On Josh the imported pwnagotchi package may already resolve directly into
+  # this repository. In that case src and dst are literally the same file;
+  # install(1) rejects that, so skip the redundant copy instead of aborting deploy.
   if [[ -n "$PKG_DIR" && -d "$PKG_DIR" ]]; then
     mkdir -p /var/backups/heimdall/ui
     for rel in voice.py ui/faces.py ui/view.py; do
       src="$REPO_ROOT/pwnagotchi/$rel"
       dst="$PKG_DIR/$rel"
       if [[ -f "$src" && -f "$dst" ]]; then
+        src_real="$(readlink -f "$src")"
+        dst_real="$(readlink -f "$dst")"
+        if [[ "$src_real" == "$dst_real" ]]; then
+          echo "Pwnagotchi overlay already active: $rel"
+          continue
+        fi
         [[ -f "/var/backups/heimdall/ui/$(basename "$rel").original" ]] || \
           cp -a "$dst" "/var/backups/heimdall/ui/$(basename "$rel").original"
         install -o root -g root -m 0644 "$src" "$dst"
