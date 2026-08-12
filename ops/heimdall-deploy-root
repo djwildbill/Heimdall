@@ -22,44 +22,40 @@ mkdir -p /var/lib/heimdall /etc/heimdall
 chown "$DEPLOY_USER":"$DEPLOY_USER" /var/lib/heimdall
 chmod 0755 /var/lib/heimdall
 
-# Install Heimdall/Bifrost-owned CLI helpers automatically.
 for tool in "$REPO_ROOT"/scripts/heimdall-* "$REPO_ROOT"/scripts/bifrost-*; do
   [[ -f "$tool" ]] || continue
   install -o root -g root -m 0755 "$tool" "/usr/local/bin/$(basename "$tool")"
 done
 
+# A Python pwnagotchi package existing on disk does NOT mean a native
+# pwnagotchi daemon owns the display. Josh currently has the package available
+# but no pwnagotchi.service. Only treat Pwnagotchi as the display runtime when
+# a real systemd unit exists. Otherwise Heimdall owns the Waveshare display.
 PWN_RUNTIME=0
 PKG_DIR=""
-if python3 -c 'import pwnagotchi' >/dev/null 2>&1; then
+if systemctl cat pwnagotchi.service >/dev/null 2>&1; then
   PWN_RUNTIME=1
-  PKG_DIR="$(python3 - <<'PY'
+  if python3 -c 'import pwnagotchi' >/dev/null 2>&1; then
+    PKG_DIR="$(python3 - <<'PY'
 import os, pwnagotchi
 print(os.path.dirname(os.path.abspath(pwnagotchi.__file__)))
 PY
 )"
-elif systemctl list-unit-files pwnagotchi.service >/dev/null 2>&1; then
-  PWN_RUNTIME=1
+  fi
 fi
 
 if [[ "$PWN_RUNTIME" -eq 1 ]]; then
   PLUGIN_DIR=/usr/local/share/pwnagotchi/custom-plugins
   mkdir -p "$PLUGIN_DIR"
 
-  # Install all Heimdall-owned plugins; leave upstream/default plugins alone.
   for plugin in "$REPO_ROOT"/custom_plugins/heimdall_*.py; do
     [[ -f "$plugin" ]] || continue
     base="$(basename "$plugin")"
     install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$base"
-
-    # Josh's inherited Pwnagotchi configuration uses hyphenated plugin names
-    # (heimdall-display, heimdall-telemetry, etc.). Install a matching alias so
-    # Pwnagotchi plugin discovery loads the exact file the config names.
     alias_name="${base//_/-}"
     install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$alias_name"
   done
 
-  # Enable the high-contrast live display without replacing the operator's
-  # existing Pwnagotchi config or any local passwords/whitelist entries.
   PWN_CONFIG=/etc/pwnagotchi/config.toml
   if [[ -f "$PWN_CONFIG" ]] && ! grep -q '^main\.plugins\.heimdall-display\.enabled' "$PWN_CONFIG"; then
     cat >> "$PWN_CONFIG" <<'EOF'
@@ -72,8 +68,6 @@ main.plugins.heimdall-display.refresh_seconds = 5
 EOF
   fi
 
-  # Ensure telemetry is enabled for SSID/client/capture data if the local
-  # configuration predates the display plugin.
   if [[ -f "$PWN_CONFIG" ]] && ! grep -q '^main\.plugins\.heimdall-telemetry\.enabled' "$PWN_CONFIG"; then
     cat >> "$PWN_CONFIG" <<'EOF'
 
@@ -83,20 +77,13 @@ main.plugins.heimdall-telemetry.state_path = "/var/lib/heimdall/wireless.json"
 EOF
   fi
 
-  # Overlay only Heimdall-owned presentation files. Keep the inherited runtime
-  # available while Odin's defensive field profile disables active behavior.
-  # On Josh the imported pwnagotchi package may already resolve directly into
-  # this repository. In that case src and dst are literally the same file;
-  # install(1) rejects that, so skip the redundant copy instead of aborting deploy.
   if [[ -n "$PKG_DIR" && -d "$PKG_DIR" ]]; then
     mkdir -p /var/backups/heimdall/ui
     for rel in voice.py ui/faces.py ui/view.py; do
       src="$REPO_ROOT/pwnagotchi/$rel"
       dst="$PKG_DIR/$rel"
       if [[ -f "$src" && -f "$dst" ]]; then
-        src_real="$(readlink -f "$src")"
-        dst_real="$(readlink -f "$dst")"
-        if [[ "$src_real" == "$dst_real" ]]; then
+        if [[ "$(readlink -f "$src")" == "$(readlink -f "$dst")" ]]; then
           echo "Pwnagotchi overlay already active: $rel"
           continue
         fi
@@ -107,18 +94,18 @@ EOF
     done
   fi
 
-  # Native Pwnagotchi owns the supported Waveshare V2 display.
   systemctl disable --now heimdall-display.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/heimdall-display.service
 else
-  # Development fallback only, until the compatible Pwnagotchi runtime exists.
+  # Josh's actual configuration: Heimdall directly owns the Waveshare 2.13 V2.
   if [[ -f "$REPO_ROOT/systemd/heimdall-display.service" ]]; then
     install -o root -g root -m 0644 "$REPO_ROOT/systemd/heimdall-display.service" /etc/systemd/system/heimdall-display.service
+  else
+    echo "Missing dedicated Heimdall display unit" >&2
+    exit 1
   fi
 fi
 
-# The postboot service replaces the e-paper REBOOTING frame with RETURNED after
-# a managed Bifrost update, then restores normal Josh UI after a short hold.
 if [[ -f "$REPO_ROOT/systemd/heimdall-bifrost-postboot.service" ]]; then
   install -o root -g root -m 0644 \
     "$REPO_ROOT/systemd/heimdall-bifrost-postboot.service" \
@@ -143,12 +130,11 @@ systemctl daemon-reload
 systemctl enable heimdall-bifrost-postboot.service >/dev/null 2>&1 || true
 
 if [[ "$PWN_RUNTIME" -eq 1 ]]; then
-  systemctl restart pwnagotchi.service >/dev/null 2>&1 || true
+  systemctl restart pwnagotchi.service
 else
-  if systemctl list-unit-files heimdall-display.service >/dev/null 2>&1; then
-    systemctl enable heimdall-display.service >/dev/null 2>&1 || true
-    systemctl restart heimdall-display.service || true
-  fi
+  systemctl enable heimdall-display.service >/dev/null 2>&1
+  systemctl restart heimdall-display.service
 fi
 
 echo "Heimdall deploy complete: v$VERSION build $BUILD (pwn runtime: $PWN_RUNTIME)"
+echo "display=$(systemctl is-active heimdall-display.service 2>/dev/null || true)"
