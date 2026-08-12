@@ -48,7 +48,14 @@ if [[ "$PWN_RUNTIME" -eq 1 ]]; then
   # Install all Heimdall-owned plugins; leave upstream/default plugins alone.
   for plugin in "$REPO_ROOT"/custom_plugins/heimdall_*.py; do
     [[ -f "$plugin" ]] || continue
-    install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$(basename "$plugin")"
+    base="$(basename "$plugin")"
+    install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$base"
+
+    # Josh's inherited Pwnagotchi configuration uses hyphenated plugin names
+    # (heimdall-display, heimdall-telemetry, etc.). Install a matching alias so
+    # BlueZ/Pwnagotchi plugin discovery loads the exact file the config names.
+    alias_name="${base//_/-}"
+    install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$alias_name"
   done
 
   # Enable the high-contrast live display without replacing the operator's
@@ -61,7 +68,6 @@ if [[ "$PWN_RUNTIME" -eq 1 ]]; then
 main.plugins.heimdall-display.enabled = true
 main.plugins.heimdall-display.state_path = "/var/lib/heimdall/wireless.json"
 main.plugins.heimdall-display.health_path = "/var/lib/heimdall/health.json"
-main.plugins.heimdall-display.mode_path = "/var/lib/heimdall/mode"
 main.plugins.heimdall-display.refresh_seconds = 5
 EOF
   fi
