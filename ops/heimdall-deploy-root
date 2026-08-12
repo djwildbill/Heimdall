@@ -18,9 +18,20 @@ if [[ ! -d "$REPO_ROOT/.git" ]]; then
   exit 1
 fi
 
+BASE="$REPO_ROOT/project_heimdall"
 mkdir -p /var/lib/heimdall /etc/heimdall
 chown "$DEPLOY_USER":"$DEPLOY_USER" /var/lib/heimdall
 chmod 0755 /var/lib/heimdall
+
+# Refresh the appliance control plane every deployment. This is what makes a
+# one-time SSH bootstrap turn into reliable future Web/Bluetooth updates.
+for unit in heimdall.service heimdall-maintenance.service heimdall-ui.service heimdall-radio.service heimdall-recovery.service heimdall-bluetooth.service; do
+  [[ -f "$BASE/systemd/$unit" ]] || continue
+  install -o root -g root -m 0644 "$BASE/systemd/$unit" "/etc/systemd/system/$unit"
+done
+[[ -f "$BASE/maintenance_helper.sh" ]] && install -o root -g root -m 0755 "$BASE/maintenance_helper.sh" /usr/local/sbin/heimdall-maintenance
+[[ -f "$BASE/recovery_helper.sh" ]] && install -o root -g root -m 0755 "$BASE/recovery_helper.sh" /usr/local/sbin/heimdall-recovery
+[[ -f "$BASE/radio_helper.sh" ]] && install -o root -g root -m 0755 "$BASE/radio_helper.sh" /usr/local/sbin/heimdall-radio-control
 
 for tool in "$REPO_ROOT"/scripts/heimdall-* "$REPO_ROOT"/scripts/bifrost-*; do
   [[ -f "$tool" ]] || continue
@@ -28,9 +39,8 @@ for tool in "$REPO_ROOT"/scripts/heimdall-* "$REPO_ROOT"/scripts/bifrost-*; do
 done
 
 # A Python pwnagotchi package existing on disk does NOT mean a native
-# pwnagotchi daemon owns the display. Josh currently has the package available
-# but no pwnagotchi.service. Only treat Pwnagotchi as the display runtime when
-# a real systemd unit exists. Otherwise Heimdall owns the Waveshare display.
+# pwnagotchi daemon owns the display. Only use native Pwnagotchi presentation
+# when a real systemd unit exists; otherwise Heimdall owns the Waveshare panel.
 PWN_RUNTIME=0
 PKG_DIR=""
 if systemctl cat pwnagotchi.service >/dev/null 2>&1; then
@@ -97,7 +107,6 @@ EOF
   systemctl disable --now heimdall-display.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/heimdall-display.service
 else
-  # Josh's actual configuration: Heimdall directly owns the Waveshare 2.13 V2.
   if [[ -f "$REPO_ROOT/systemd/heimdall-display.service" ]]; then
     install -o root -g root -m 0644 "$REPO_ROOT/systemd/heimdall-display.service" /etc/systemd/system/heimdall-display.service
   else
@@ -107,9 +116,7 @@ else
 fi
 
 if [[ -f "$REPO_ROOT/systemd/heimdall-bifrost-postboot.service" ]]; then
-  install -o root -g root -m 0644 \
-    "$REPO_ROOT/systemd/heimdall-bifrost-postboot.service" \
-    /etc/systemd/system/heimdall-bifrost-postboot.service
+  install -o root -g root -m 0644 "$REPO_ROOT/systemd/heimdall-bifrost-postboot.service" /etc/systemd/system/heimdall-bifrost-postboot.service
 fi
 
 VERSION="unknown"
@@ -127,6 +134,7 @@ EOF
 chmod 0644 /etc/heimdall/release
 
 systemctl daemon-reload
+systemctl enable heimdall.service heimdall-maintenance.service heimdall-ui.service heimdall-radio.service heimdall-recovery.service heimdall-bluetooth.service >/dev/null 2>&1 || true
 systemctl enable heimdall-bifrost-postboot.service >/dev/null 2>&1 || true
 
 if [[ "$PWN_RUNTIME" -eq 1 ]]; then
@@ -136,5 +144,16 @@ else
   systemctl restart heimdall-display.service
 fi
 
+# Restart control services after files/helpers are in place. Bluetooth and Web
+# requests intentionally reconnect after a managed update.
+systemctl restart heimdall.service || true
+systemctl restart heimdall-radio.service || true
+systemctl restart heimdall-recovery.service || true
+systemctl restart heimdall-ui.service || true
+systemctl restart heimdall-bluetooth.service || true
+systemctl restart heimdall-maintenance.service || true
+
 echo "Heimdall deploy complete: v$VERSION build $BUILD (pwn runtime: $PWN_RUNTIME)"
 echo "display=$(systemctl is-active heimdall-display.service 2>/dev/null || true)"
+echo "bluetooth=$(systemctl is-active heimdall-bluetooth.service 2>/dev/null || true)"
+echo "maintenance=$(systemctl is-active heimdall-maintenance.service 2>/dev/null || true)"
