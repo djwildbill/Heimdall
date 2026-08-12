@@ -36,7 +36,8 @@ def run_cmd(args,input_text=None,timeout=120):
 
 def run_helper(action):
     if action not in ALLOWED:return 'Action not allowed',400
-    code,out=run_cmd(['sudo',HELPER,action])
+    helper_action='apply-update-async' if action=='apply-update' else action
+    code,out=run_cmd(['sudo',HELPER,helper_action])
     return out or f'{action}: completed',(200 if code==0 else 500)
 
 def auth_from_body(body):
@@ -71,16 +72,15 @@ def action(action):
         body=request.get_json(silent=True) or {};pw=str(body.get('password',''));confirm=str(body.get('confirm','')).strip().upper();need=action.upper()
         if not valid_password(pw):return jsonify({'ok':False,'error':'Password confirmation required for node power action.'}),401
         if confirm!=need:return jsonify({'ok':False,'error':f'Type {need} to confirm this action.'}),400
-    out,code=run_helper(action);return jsonify({'ok':code==200,'action':action,'output':out}),code
+    out,code=run_helper(action)
+    payload={'ok':code==200,'action':action,'output':out}
+    if action=='apply-update' and code==200:
+        payload['status']='update-started';payload['reconnect_required']=True
+    return jsonify(payload),code
 
-# Local control bridge used by the hardened Bluetooth daemon.
-# This Flask service only listens on 127.0.0.1, so these endpoints are not
-# exposed over Wi-Fi. Read-only status is public locally; changes require the
-# node's maintenance password in the JSON body.
 @app.get('/api/control/radio/status')
 def control_radio_status():
     data,code=command_json(['sudo',RADIO_HELPER,'status']);return jsonify(data),code
-
 @app.post('/api/control/radio/mode')
 def control_radio_mode():
     body=request.get_json(silent=True) or {}
@@ -92,7 +92,6 @@ def control_radio_mode():
 @app.get('/api/control/recovery/status')
 def control_recovery_status():
     data,code=command_json(['sudo',RECOVERY_HELPER,'status']);return jsonify(data),code
-
 @app.post('/api/control/recovery/action')
 def control_recovery_action():
     body=request.get_json(silent=True) or {}
@@ -116,5 +115,12 @@ def control_ui_restart():
     if not auth_from_body(body):return jsonify({'ok':False,'error':'maintenance authentication required'}),401
     out,code=run_helper('restart-ui')
     return jsonify({'ok':code==200,'action':'restart-ui','output':out}),code
+
+@app.post('/api/control/maintenance/update')
+def control_maintenance_update():
+    body=request.get_json(silent=True) or {}
+    if not auth_from_body(body):return jsonify({'ok':False,'error':'maintenance authentication required'}),401
+    out,code=run_cmd(['sudo',HELPER,'apply-update-async'])
+    return jsonify({'ok':code==0,'action':'apply-update','status':'update-started' if code==0 else 'failed','reconnect_required':code==0,'output':out}), (200 if code==0 else 500)
 
 if __name__=='__main__':app.run(host='127.0.0.1',port=8090,debug=False,use_reloader=False)
