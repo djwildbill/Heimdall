@@ -13,7 +13,7 @@ DEFAULT_MESSAGES = {
     "cool": "All realms accounted for.",
     "happy": "The watch goes well.",
     "grateful": "Good company on the bridge.",
-    "excited": "A trace has been secured.",
+    "excited": "A trace has been secured!",
     "smart": "Studying the Nine Realms...",
     "friendly": "Another guardian has answered.",
     "motivated": "The watch continues.",
@@ -40,6 +40,9 @@ class HeimdallState:
         self.last_activity = time.time()
         return self
 
+    def awakening(self):
+        return self.set("awakening")
+
     def sleeping(self):
         return self.set("sleeping")
 
@@ -61,8 +64,20 @@ class HeimdallState:
     def friendly(self):
         return self.set("friendly")
 
+    def motivated(self):
+        return self.set("motivated")
+
+    def happy(self):
+        return self.set("happy")
+
+    def cool(self):
+        return self.set("cool")
+
     def bored(self):
         return self.set("bored")
+
+    def lonely(self):
+        return self.set("lonely")
 
     def low_battery(self):
         return self.set("sad")
