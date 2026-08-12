@@ -51,6 +51,32 @@ if [[ "$PWN_RUNTIME" -eq 1 ]]; then
     install -o root -g root -m 0644 "$plugin" "$PLUGIN_DIR/$(basename "$plugin")"
   done
 
+  # Enable the high-contrast live display without replacing the operator's
+  # existing Pwnagotchi config or any local passwords/whitelist entries.
+  PWN_CONFIG=/etc/pwnagotchi/config.toml
+  if [[ -f "$PWN_CONFIG" ]] && ! grep -q '^main\.plugins\.heimdall-display\.enabled' "$PWN_CONFIG"; then
+    cat >> "$PWN_CONFIG" <<'EOF'
+
+# Project Odin / Heimdall live e-paper dashboard
+main.plugins.heimdall-display.enabled = true
+main.plugins.heimdall-display.state_path = "/var/lib/heimdall/wireless.json"
+main.plugins.heimdall-display.health_path = "/var/lib/heimdall/health.json"
+main.plugins.heimdall-display.mode_path = "/var/lib/heimdall/mode"
+main.plugins.heimdall-display.refresh_seconds = 5
+EOF
+  fi
+
+  # Ensure telemetry is enabled for SSID/client/capture data if the local
+  # configuration predates the display plugin.
+  if [[ -f "$PWN_CONFIG" ]] && ! grep -q '^main\.plugins\.heimdall-telemetry\.enabled' "$PWN_CONFIG"; then
+    cat >> "$PWN_CONFIG" <<'EOF'
+
+# Project Odin / Heimdall wireless telemetry
+main.plugins.heimdall-telemetry.enabled = true
+main.plugins.heimdall-telemetry.state_path = "/var/lib/heimdall/wireless.json"
+EOF
+  fi
+
   # Overlay only Heimdall-owned presentation files. Keep the inherited runtime
   # available while Odin's defensive field profile disables active behavior.
   if [[ -n "$PKG_DIR" && -d "$PKG_DIR" ]]; then
