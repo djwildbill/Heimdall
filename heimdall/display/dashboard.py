@@ -32,6 +32,7 @@ VERSION = "0.1.0-alpha"
 POLL_SECONDS = 5
 FORCE_REFRESH_SECONDS = 60
 LOCK_PATH = "/tmp/heimdall-display.lock"
+BOOT_TIME = time.time()
 
 
 def get_font(name: str, size: int):
@@ -65,8 +66,14 @@ def clip_text(draw, text, font, max_width):
 
 
 def choose_state(josh: HeimdallState, data: dict, previous_captures: int) -> int:
+    """Give Josh a Pwnagotchi-like personality driven by real node activity."""
     wireless = data["wireless"]
     captures = wireless["captures"]
+    now = time.time()
+    last_activity = float(wireless.get("last_activity", 0) or 0)
+    last_capture = float(wireless.get("last_capture", 0) or 0)
+    activity_age = now - last_activity if last_activity else 999999
+    mode = str(data.get("mode", "")).upper()
 
     battery_text = data["battery"].rstrip("%")
     try:
@@ -76,21 +83,46 @@ def choose_state(josh: HeimdallState, data: dict, previous_captures: int) -> int
     except ValueError:
         pass
 
-    if captures > previous_captures:
+    # Boot personality: let Josh visibly wake up instead of instantly appearing idle.
+    if now - BOOT_TIME < 25:
+        josh.awakening()
+        return captures
+
+    # A new capture gets the strongest reaction and remains visible briefly.
+    if captures > previous_captures or (last_capture and now - last_capture < 20):
         josh.capture()
-    elif wireless["networks"] >= 20 or wireless["clients"] >= 30:
+        return captures
+
+    # Heimdall operating modes have their own personalities.
+    if mode.startswith("SURV"):
+        josh.smart()
+        return captures
+    if mode.startswith("FIEL"):
+        josh.motivated()
+        return captures
+
+    # Lots of nearby activity = focused/intense Josh.
+    if wireless["networks"] >= 20 or wireless["clients"] >= 30:
         josh.intense()
+    elif wireless["clients"] > 0:
+        josh.observing(happy=True)
     elif wireless["networks"] > 0:
-        josh.observing(happy=wireless["clients"] > 0)
+        josh.observing()
     elif data["wifi"] == "DOWN":
+        josh.lonely()
+    elif activity_age > 900:
+        josh.sleeping()
+    elif activity_age > 300:
         josh.bored()
+    elif mode.startswith("CONN"):
+        josh.friendly()
     else:
         josh.normal()
+
     return captures
 
 
 def draw_dashboard(epd, josh: HeimdallState, data: dict):
-    # Waveshare 2.13 V2 is 250x122 in landscape when width/height are swapped.
     image = Image.new("1", (epd.height, epd.width), 255)
     draw = ImageDraw.Draw(image)
 
@@ -103,12 +135,10 @@ def draw_dashboard(epd, josh: HeimdallState, data: dict):
 
     wireless = data["wireless"]
 
-    # Header: use the valuable top-right PWN area for the node identity instead.
     centered(draw, 0, f"{NODE_ID} {PERSONA}", header)
     centered(draw, 18, "HEIMDALL", subhead)
     draw.line((4, 29, 245, 29), fill=0)
 
-    # Side telemetry columns and large centered Josh face.
     draw.line((58, 32, 58, 82), fill=0)
     draw.line((192, 32, 192, 82), fill=0)
 
@@ -128,7 +158,6 @@ def draw_dashboard(epd, josh: HeimdallState, data: dict):
 
     draw.line((4, 85, 245, 85), fill=0)
 
-    # Bottom telemetry: no management IP and no whitelist label.
     draw.text((5, 88), "UP", font=tiny_bold, fill=0)
     draw.text((20, 88), data["uptime"], font=tiny_bold, fill=0)
 
