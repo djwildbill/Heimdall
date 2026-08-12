@@ -1,7 +1,7 @@
 """Telemetry helpers for the Heimdall e-paper UI.
 
 Wireless counters are read from /var/lib/heimdall/wireless.json. The wireless
-engine will own that file once installed. Power data comes from the official
+engine owns that file when available. Power data comes from the official
 PiSugar Power Manager unix socket when available.
 """
 
@@ -43,6 +43,9 @@ def mode() -> str:
         "sentinel": "SENT",
         "recon": "RECN",
         "maintenance": "CMD",
+        "connected": "CONN",
+        "survey": "SRVY",
+        "field": "FLD",
     }.get(value, value[:4].upper())
 
 
@@ -96,7 +99,6 @@ def battery() -> str:
     if isinstance(value, (int, float)):
         return f"{max(0, min(100, round(value)))}%"
 
-    # Compatibility fallback for health providers that populate health.json.
     health = _read_json(HEALTH_STATE)
     value = health.get("battery_percent")
     if isinstance(value, (int, float)):
@@ -111,8 +113,11 @@ def wireless() -> dict:
         "clients": int(data.get("clients", 0) or 0),
         "captures": int(data.get("captures", 0) or 0),
         "channel": data.get("channel", "--"),
+        "ssid": str(data.get("ssid") or "--"),
+        "last_handshake_ssid": str(data.get("last_handshake_ssid") or "--"),
         "last_activity": float(data.get("last_activity", 0) or 0),
         "last_capture": float(data.get("last_capture", 0) or 0),
+        "updated_at": float(data.get("updated_at", 0) or 0),
     }
 
 
