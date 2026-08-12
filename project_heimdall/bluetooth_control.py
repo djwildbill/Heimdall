@@ -23,12 +23,7 @@ def run(args, *, timeout=20):
 
 def http_json(method, path, body=None, timeout=120):
     data = None if body is None else json.dumps(body).encode('utf-8')
-    req = urllib.request.Request(
-        BRIDGE + path,
-        data=data,
-        method=method,
-        headers={'Content-Type': 'application/json'},
-    )
+    req = urllib.request.Request(BRIDGE + path, data=data, method=method, headers={'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode('utf-8')
@@ -74,6 +69,8 @@ def handle(req):
 
     password = str(req.get('password', ''))
 
+    if cmd in {'update', 'apply-update'}:
+        return http_json('POST', '/api/control/maintenance/update', {'password': password}, timeout=20)
     if cmd == 'restart-ui':
         return http_json('POST', '/api/control/ui/restart', {'password': password})
     if cmd == 'set-mode':
@@ -95,10 +92,7 @@ def handle(req):
         wifi_password = str(req.get('wifi_password', ''))
         if not ssid:
             return {'ok': False, 'error': 'ssid required'}
-        return http_json('POST', '/api/control/recovery/action', {
-            'action': 'connect-new', 'ssid': ssid,
-            'wifi_password': wifi_password, 'password': password,
-        })
+        return http_json('POST', '/api/control/recovery/action', {'action': 'connect-new', 'ssid': ssid, 'wifi_password': wifi_password, 'password': password})
     if cmd == 'backup':
         return {'ok': False, 'error': 'backup over Bluetooth is not enabled yet'}
 
@@ -109,7 +103,7 @@ def client_loop(conn, addr):
     conn.settimeout(120)
     buf = b''
     try:
-        conn.sendall((json.dumps({'ok': True, 'hello': 'Project Odin Heimdall', 'node': 'OVN-002', 'codename': 'Josh', 'protocol': 2}) + '\n').encode())
+        conn.sendall((json.dumps({'ok': True, 'hello': 'Project Odin Heimdall', 'node': 'OVN-002', 'codename': 'Josh', 'protocol': 3}) + '\n').encode())
         while True:
             chunk = conn.recv(1024)
             if not chunk:
@@ -133,10 +127,8 @@ def client_loop(conn, addr):
     except (ConnectionError, TimeoutError, socket.timeout):
         return
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        try: conn.close()
+        except Exception: pass
 
 
 def main():
