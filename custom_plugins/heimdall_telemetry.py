@@ -8,7 +8,7 @@ import pwnagotchi.plugins as plugins
 
 class HeimdallTelemetry(plugins.Plugin):
     __author__ = "Project Odin"
-    __version__ = "0.1.0"
+    __version__ = "0.2.0"
     __license__ = "GPL3"
     __description__ = "Feeds live Pwnagotchi wireless state into Heimdall telemetry."
 
@@ -18,6 +18,8 @@ class HeimdallTelemetry(plugins.Plugin):
         self.networks = 0
         self.clients = 0
         self.captures = 0
+        self.ssid = "--"
+        self.last_handshake_ssid = "--"
         self.last_capture = 0
         self.last_activity = 0
 
@@ -36,16 +38,29 @@ class HeimdallTelemetry(plugins.Plugin):
         self._write()
 
     def on_wifi_update(self, agent, access_points):
-        self.networks = len(access_points or [])
+        aps = access_points or []
+        self.networks = len(aps)
         self.clients = 0
-        for ap in access_points or []:
+        for ap in aps:
             clients = ap.get("clients") or ap.get("stations") or []
             self.clients += len(clients)
+
+        # wifi_update receives the post-policy list from the agent. Protected /
+        # whitelisted SSIDs have already been excluded, so the display never
+        # needs to expose Josh's management/private network name.
+        focus = self._focus_ap(aps)
+        if focus:
+            self.ssid = self._ap_name(focus)
+            if focus.get("channel") is not None:
+                self.channel = focus.get("channel")
+
         self.last_activity = time.time()
         self._write()
 
     def on_unfiltered_ap_list(self, agent, access_points):
-        # Keep counts representative of what Josh actually sees before filters.
+        # Preserve only aggregate counts here. Never derive the displayed SSID
+        # from the unfiltered list because that list can contain protected
+        # networks.
         if access_points is not None:
             self.networks = len(access_points)
             self.clients = 0
@@ -59,6 +74,16 @@ class HeimdallTelemetry(plugins.Plugin):
         self.captures += 1
         self.last_capture = time.time()
         self.last_activity = self.last_capture
+
+        if isinstance(access_point, dict):
+            self.last_handshake_ssid = self._ap_name(access_point)
+            self.ssid = self.last_handshake_ssid
+            if access_point.get("channel") is not None:
+                self.channel = access_point.get("channel")
+        elif access_point:
+            self.last_handshake_ssid = str(access_point)
+            self.ssid = self.last_handshake_ssid
+
         self._write()
 
     def on_epoch(self, agent, epoch, epoch_data):
@@ -74,10 +99,35 @@ class HeimdallTelemetry(plugins.Plugin):
                 self.clients = sum(len((ap.get("clients") or ap.get("stations") or [])) for ap in aps)
             if wifi.get("channel") is not None:
                 self.channel = wifi.get("channel")
+
+            handshakes = getattr(agent, "_handshakes", None)
+            if isinstance(handshakes, dict):
+                self.captures = len(handshakes)
+
+            last_pwnd = getattr(agent, "_last_pwnd", None)
+            if last_pwnd and self.last_handshake_ssid == "--":
+                self.last_handshake_ssid = str(last_pwnd)
+
             self.last_activity = time.time()
         except Exception as exc:
             logging.debug("Heimdall telemetry session refresh failed: %s", exc)
         self._write()
+
+    @staticmethod
+    def _ap_name(ap):
+        name = str(ap.get("hostname") or "").strip()
+        if name and name != "<hidden>":
+            return name
+        return "<hidden>"
+
+    @staticmethod
+    def _focus_ap(aps):
+        if not aps:
+            return None
+        try:
+            return max(aps, key=lambda ap: int(ap.get("rssi", -999)))
+        except (TypeError, ValueError):
+            return aps[0]
 
     def _write(self):
         payload = {
@@ -85,6 +135,8 @@ class HeimdallTelemetry(plugins.Plugin):
             "clients": int(self.clients),
             "captures": int(self.captures),
             "channel": self.channel,
+            "ssid": self.ssid,
+            "last_handshake_ssid": self.last_handshake_ssid,
             "last_activity": float(self.last_activity),
             "last_capture": float(self.last_capture),
             "updated_at": time.time(),
