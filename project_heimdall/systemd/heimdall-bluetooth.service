@@ -7,7 +7,7 @@ Requires=bluetooth.service heimdall-maintenance.service
 Type=simple
 User=nabzaf
 WorkingDirectory=/home/nabzaf/Heimdall/project_heimdall
-ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/bluetooth_control.py
+ExecStart=/home/nabzaf/Heimdall/project_heimdall/.venv/bin/python /home/nabzaf/Heimdall/project_heimdall/bluetooth_control_v4.py
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
