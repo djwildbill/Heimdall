@@ -10,9 +10,10 @@ import urllib.error
 import urllib.request
 
 CHANNEL = 22
-MAX_LINE = 8192
+MAX_LINE = 65536
 BDADDR_ANY = '00:00:00:00:00:00'
 BRIDGE = 'http://127.0.0.1:8090'
+HEIMDALL_API = 'http://127.0.0.1:8080'
 
 
 def run(args, *, timeout=20):
@@ -21,9 +22,9 @@ def run(args, *, timeout=20):
     return p.returncode, out
 
 
-def http_json(method, path, body=None, timeout=120):
+def http_json(method, path, body=None, timeout=120, base=BRIDGE):
     data = None if body is None else json.dumps(body).encode('utf-8')
-    req = urllib.request.Request(BRIDGE + path, data=data, method=method, headers={'Content-Type': 'application/json'})
+    req = urllib.request.Request(base + path, data=data, method=method, headers={'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode('utf-8')
@@ -33,9 +34,30 @@ def http_json(method, path, body=None, timeout=120):
             raw = exc.read().decode('utf-8')
             return json.loads(raw or '{}')
         except Exception:
-            return {'ok': False, 'error': f'bridge HTTP {exc.code}'}
+            return {'ok': False, 'error': f'HTTP {exc.code}'}
     except Exception as exc:
         return {'ok': False, 'error': f'control bridge unavailable: {exc}'}
+
+
+def wifi_json(path):
+    return http_json('GET', path, timeout=20, base=HEIMDALL_API)
+
+
+def wifi_dashboard():
+    status_data = wifi_json('/api/status')
+    networks = wifi_json('/api/networks')
+    activity = wifi_json('/api/activity')
+    if isinstance(status_data, dict) and status_data.get('ok') is False:
+        return status_data
+    return {
+        'ok': True,
+        'node': 'OVN-002',
+        'codename': 'Josh',
+        'status': status_data if isinstance(status_data, dict) else {},
+        'networks': networks if isinstance(networks, list) else [],
+        'activity': activity if isinstance(activity, list) else [],
+        'time': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+    }
 
 
 def status():
@@ -58,6 +80,17 @@ def handle(req):
     cmd = str(req.get('cmd', '')).strip().lower()
     if cmd in {'ping', 'status'}:
         return status()
+    if cmd == 'wifi-status':
+        result = wifi_json('/api/status')
+        return result if isinstance(result, dict) else {'ok': False, 'error': 'invalid scanner status'}
+    if cmd == 'wifi-networks':
+        result = wifi_json('/api/networks')
+        return {'ok': True, 'networks': result if isinstance(result, list) else []}
+    if cmd == 'wifi-activity':
+        result = wifi_json('/api/activity')
+        return {'ok': True, 'activity': result if isinstance(result, list) else []}
+    if cmd == 'wifi-dashboard':
+        return wifi_dashboard()
     if cmd == 'radio-status':
         return http_json('GET', '/api/control/radio/status')
     if cmd == 'recovery-status':
@@ -103,7 +136,7 @@ def client_loop(conn, addr):
     conn.settimeout(120)
     buf = b''
     try:
-        conn.sendall((json.dumps({'ok': True, 'hello': 'Project Odin Heimdall', 'node': 'OVN-002', 'codename': 'Josh', 'protocol': 3}) + '\n').encode())
+        conn.sendall((json.dumps({'ok': True, 'hello': 'Project Odin Heimdall', 'node': 'OVN-002', 'codename': 'Josh', 'protocol': 4}) + '\n').encode())
         while True:
             chunk = conn.recv(1024)
             if not chunk:
@@ -127,8 +160,10 @@ def client_loop(conn, addr):
     except (ConnectionError, TimeoutError, socket.timeout):
         return
     finally:
-        try: conn.close()
-        except Exception: pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def main():
