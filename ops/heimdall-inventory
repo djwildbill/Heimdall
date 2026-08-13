@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import pathlib
+import platform
+import shutil
+import sqlite3
+import subprocess
+import sys
+from typing import Any
+
+DEFAULT_DB = "/var/lib/heimdall/inventory.db"
+
+
+def run(cmd: list[str]) -> str:
+    try:
+        p = subprocess.run(cmd, text=True, capture_output=True, timeout=20, check=False)
+        out = (p.stdout or "").strip()
+        err = (p.stderr or "").strip()
+        return out if out else err
+    except Exception as exc:
+        return f"ERROR: {exc}"
+
+
+def read_text(path: str) -> str:
+    try:
+        return pathlib.Path(path).read_text(errors="replace").replace("\x00", "").strip()
+    except Exception:
+        return ""
+
+
+def os_release() -> dict[str, str]:
+    data: dict[str, str] = {}
+    for line in read_text("/etc/os-release").splitlines():
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        data[k] = v.strip().strip('"')
+    return data
+
+
+def collect() -> dict[str, Any]:
+    release = os_release()
+    repo = pathlib.Path.home() / "Heimdall"
+    model = read_text("/proc/device-tree/model")
+    if not model:
+        model = read_text("/sys/firmware/devicetree/base/model")
+
+    inv: dict[str, Any] = {
+        "hostname": platform.node(),
+        "pi_model": model,
+        "architecture": platform.machine(),
+        "kernel": platform.release(),
+        "os_pretty_name": release.get("PRETTY_NAME", ""),
+        "os_version_id": release.get("VERSION_ID", ""),
+        "os_codename": release.get("VERSION_CODENAME", ""),
+        "python": platform.python_version(),
+        "python_executable": sys.executable,
+        "iw_dev": run(["iw", "dev"]) if shutil.which("iw") else "NOT_INSTALLED",
+        "usb": run(["lsusb"]) if shutil.which("lsusb") else "NOT_INSTALLED",
+        "bluetooth": run(["bluetoothctl", "show"]) if shutil.which("bluetoothctl") else "NOT_INSTALLED",
+        "network_links": run(["ip", "-brief", "link"]) if shutil.which("ip") else "NOT_INSTALLED",
+        "heimdall_branch": run(["git", "-C", str(repo), "branch", "--show-current"]) if repo.exists() else "",
+        "heimdall_commit": run(["git", "-C", str(repo), "rev-parse", "HEAD"]) if repo.exists() else "",
+        "services": run(["systemctl", "list-unit-files", "--type=service", "--no-pager"]) if shutil.which("systemctl") else "NOT_AVAILABLE",
+    }
+    return inv
+
+
+def connect(db_path: str) -> sqlite3.Connection:
+    path = pathlib.Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(path)
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            captured_at TEXT NOT NULL,
+            label TEXT NOT NULL,
+            data_json TEXT NOT NULL
+        )
+        """
+    )
+    con.commit()
+    return con
+
+
+def save(con: sqlite3.Connection, label: str, data: dict[str, Any]) -> int:
+    cur = con.execute(
+        "INSERT INTO inventory_snapshots(captured_at,label,data_json) VALUES(?,?,?)",
+        (dt.datetime.now(dt.timezone.utc).isoformat(), label, json.dumps(data, sort_keys=True)),
+    )
+    con.commit()
+    return int(cur.lastrowid)
+
+
+def latest(con: sqlite3.Connection, label: str = "baseline") -> tuple[int, str, dict[str, Any]] | None:
+    row = con.execute(
+        "SELECT id,captured_at,data_json FROM inventory_snapshots WHERE label=? ORDER BY id DESC LIMIT 1",
+        (label,),
+    ).fetchone()
+    if not row:
+        return None
+    return int(row[0]), str(row[1]), json.loads(row[2])
+
+
+def important(data: dict[str, Any]) -> dict[str, Any]:
+    # Git branch/commit and service text are useful history but should not make
+    # hardware/OS compatibility checks fail after every software update.
+    ignore = {"heimdall_branch", "heimdall_commit", "services"}
+    return {k: v for k, v in data.items() if k not in ignore}
+
+
+def diff(old: dict[str, Any], new: dict[str, Any]) -> list[tuple[str, Any, Any]]:
+    a, b = important(old), important(new)
+    keys = sorted(set(a) | set(b))
+    return [(k, a.get(k), b.get(k)) for k in keys if a.get(k) != b.get(k)]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Capture and compare Heimdall node hardware/software inventory")
+    ap.add_argument("--db", default=os.environ.get("HEIMDALL_INVENTORY_DB", DEFAULT_DB))
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    cap = sub.add_parser("capture", help="capture a baseline snapshot")
+    cap.add_argument("--label", default="baseline")
+
+    chk = sub.add_parser("check", help="compare the live node to the latest baseline")
+    chk.add_argument("--label", default="baseline")
+
+    show = sub.add_parser("show", help="show the latest stored baseline")
+    show.add_argument("--label", default="baseline")
+
+    args = ap.parse_args()
+    con = connect(args.db)
+
+    if args.cmd == "capture":
+        data = collect()
+        snap_id = save(con, args.label, data)
+        print(f"HEIMDALL INVENTORY BASELINE SAVED: id={snap_id} label={args.label}")
+        print(json.dumps(data, indent=2, sort_keys=True))
+        return 0
+
+    base = latest(con, args.label)
+    if not base:
+        print(f"NO BASELINE FOUND for label={args.label}")
+        print(f"Create one with: sudo {sys.argv[0]} capture --label {args.label}")
+        return 2
+
+    snap_id, captured_at, old = base
+
+    if args.cmd == "show":
+        print(f"BASELINE id={snap_id} captured_at={captured_at} label={args.label}")
+        print(json.dumps(old, indent=2, sort_keys=True))
+        return 0
+
+    now = collect()
+    changes = diff(old, now)
+    if not changes:
+        print(f"HEIMDALL INVENTORY: MATCH baseline={snap_id} captured_at={captured_at}")
+        print(f"Pi={now.get('pi_model') or 'unknown'} | OS={now.get('os_pretty_name')} | arch={now.get('architecture')} | Python={now.get('python')}")
+        return 0
+
+    print(f"HEIMDALL INVENTORY: CHANGED baseline={snap_id} captured_at={captured_at}")
+    for key, was, is_now in changes:
+        print(f"\n[{key}]\nBASELINE:\n{was}\nCURRENT:\n{is_now}")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
