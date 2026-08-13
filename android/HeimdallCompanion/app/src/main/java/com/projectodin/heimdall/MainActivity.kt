@@ -1,94 +1,88 @@
 package com.projectodin.heimdall
 
 import android.Manifest
-import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.os.Bundle
-import android.view.Gravity
-import android.view.View
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.UUID
 import java.util.concurrent.Executors
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private val io = Executors.newSingleThreadExecutor()
     private val sppUuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     private var socket: BluetoothSocket? = null
     private var reader: BufferedReader? = null
 
-    private lateinit var connection: TextView
-    private lateinit var node: TextView
-    private lateinit var mode: TextView
-    private lateinit var survey: Button
-    private lateinit var detail: TextView
+    private var uiState by mutableStateOf(JoshUiState())
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result[Manifest.permission.BLUETOOTH_CONNECT] == true) connectJosh()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(buildUi())
-        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN), 100)
-        } else connectHeimdall()
+        setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                JoshScreen(
+                    state = uiState,
+                    onConnect = { ensurePermissionThenConnect() },
+                    onRefresh = { send("status") },
+                    onDoctor = { send("doctor") },
+                    onCheckUpdate = { send("check-update") }
+                )
+            }
+        }
+        ensurePermissionThenConnect()
     }
 
-    private fun buildUi(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(36, 44, 36, 36)
-            setBackgroundColor(Color.rgb(5, 15, 30))
+    private fun ensurePermissionThenConnect() {
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+            connectJosh()
+        } else {
+            permissionLauncher.launch(arrayOf(
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_SCAN
+            ))
         }
-        fun text(value: String, size: Float = 18f) = TextView(this).apply {
-            text = value; textSize = size; setTextColor(Color.WHITE); setPadding(0, 10, 0, 10)
-        }
-        root.addView(text("PROJECT ODIN", 28f))
-        root.addView(text("HEIMDALL COMPANION", 20f))
-        connection = text("Bluetooth: DISCONNECTED", 16f); root.addView(connection)
-        node = text("Josh / OVN-002", 24f); root.addView(node)
-        mode = text("Mode: --", 20f); root.addView(mode)
-
-        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val connect = Button(this).apply { text = "CONNECT"; setOnClickListener { connectHeimdall() } }
-        val refresh = Button(this).apply { text = "REFRESH"; setOnClickListener { send("status") } }
-        actions.addView(connect); actions.addView(refresh); root.addView(actions)
-
-        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val connected = Button(this).apply { text = "CONNECTED"; isEnabled = false }
-        survey = Button(this).apply { text = "SURVEY"; isEnabled = false }
-        val recovery = Button(this).apply { text = "RECOVERY"; isEnabled = false }
-        modes.addView(connected); modes.addView(survey); modes.addView(recovery); root.addView(modes)
-
-        val tools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        tools.addView(Button(this).apply { text = "DOCTOR"; setOnClickListener { send("doctor") } })
-        tools.addView(Button(this).apply { text = "CHECK UPDATE"; setOnClickListener { send("check-update") } })
-        root.addView(tools)
-
-        detail = text("Waiting for HEIMDALL…", 15f); detail.setTextColor(Color.rgb(110, 210, 255))
-        val scroll = ScrollView(this).apply { addView(detail) }
-        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        return root
     }
 
     @Suppress("MissingPermission")
-    private fun connectHeimdall() {
-        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return
-        connection.text = "Bluetooth: CONNECTING…"
+    private fun connectJosh() {
+        uiState = uiState.copy(connection = "CONNECTING", message = "Looking for Josh…")
         io.execute {
             try {
                 socket?.close()
                 val manager = getSystemService(BluetoothManager::class.java)
                 val adapter: BluetoothAdapter = manager.adapter ?: error("Bluetooth unavailable")
-                val device: BluetoothDevice = adapter.bondedDevices.firstOrNull { it.name.equals("HEIMDALL", true) }
-                    ?: error("Pair HEIMDALL in Android Bluetooth settings first")
+                val device: BluetoothDevice = adapter.bondedDevices.firstOrNull {
+                    val name = it.name ?: ""
+                    name.equals("HEIMDALL", true) ||
+                        name.equals("JOSH-OVN-002", true) ||
+                        name.contains("JOSH", true)
+                } ?: error("Pair HEIMDALL / JOSH-OVN-002 in Android Bluetooth settings first")
+
                 adapter.cancelDiscovery()
                 val s = device.createRfcommSocketToServiceRecord(sppUuid)
                 s.connect()
@@ -96,12 +90,20 @@ class MainActivity : Activity() {
                 reader = BufferedReader(InputStreamReader(s.inputStream))
                 val hello = reader!!.readLine()
                 runOnUiThread {
-                    connection.text = "Bluetooth: CONNECTED"
-                    detail.text = hello
+                    uiState = uiState.copy(
+                        connection = "CONNECTED",
+                        message = "Bluetooth link established",
+                        raw = hello
+                    )
                 }
                 send("status")
             } catch (e: Exception) {
-                runOnUiThread { connection.text = "Bluetooth: DISCONNECTED"; detail.text = e.message ?: e.toString() }
+                runOnUiThread {
+                    uiState = uiState.copy(
+                        connection = "DISCONNECTED",
+                        message = e.message ?: e.toString()
+                    )
+                }
             }
         }
     }
@@ -109,39 +111,38 @@ class MainActivity : Activity() {
     private fun send(cmd: String) {
         io.execute {
             try {
-                val s = socket ?: error("Not connected")
+                val s = socket ?: error("Josh is not connected")
                 val request = JSONObject().put("cmd", cmd).toString() + "\n"
                 s.outputStream.write(request.toByteArray())
                 s.outputStream.flush()
-                val response = reader?.readLine() ?: error("No response from HEIMDALL")
+                val response = reader?.readLine() ?: error("No response from Josh")
                 val json = JSONObject(response)
                 runOnUiThread { render(cmd, json) }
             } catch (e: Exception) {
-                runOnUiThread { detail.text = e.message ?: e.toString() }
+                runOnUiThread { uiState = uiState.copy(message = e.message ?: e.toString()) }
             }
         }
     }
 
     private fun render(cmd: String, json: JSONObject) {
         if (cmd == "status" && json.optBoolean("ok")) {
-            node.text = "${json.optString("codename", "Josh")} / ${json.optString("node", "OVN-002")}"
             val radio = json.optJSONObject("radio")
             val currentMode = radio?.optString("mode", "--") ?: "--"
-            mode.text = "Mode: ${currentMode.uppercase()}"
-            val available = radio?.optBoolean("survey_available", false) ?: false
-            survey.isEnabled = available
-            survey.text = if (available) "SURVEY" else "SURVEY\nSECOND RADIO REQUIRED"
+            val surveyAvailable = radio?.optBoolean("survey_available", false) ?: false
             val reason = radio?.optString("survey_unavailable_reason", "") ?: ""
-            detail.text = buildString {
-                append("Bluetooth control: ONLINE\n")
-                append("Management radio: ${radio?.optString("management_interface", "--")}\n")
-                append("Interfaces: ${radio?.optJSONArray("interfaces_present") ?: "[]"}\n")
-                append("Survey available: $available\n")
-                if (reason.isNotBlank()) append("$reason\n")
-                append("\nRecovery portal: ${json.optJSONObject("recovery")?.optString("portal", "--")}")
-            }
+            uiState = uiState.copy(
+                node = json.optString("node", "OVN-002"),
+                codename = json.optString("codename", "Josh"),
+                mode = currentMode.uppercase(),
+                surveyAvailable = surveyAvailable,
+                message = if (surveyAvailable) "Watching the Bifrost" else (reason.ifBlank { "Watching the Bifrost" }),
+                raw = json.toString(2)
+            )
         } else {
-            detail.text = json.optString("output", json.toString(2))
+            uiState = uiState.copy(
+                message = json.optString("output", if (json.optBoolean("ok")) "Command completed" else "Command failed"),
+                raw = json.toString(2)
+            )
         }
     }
 
@@ -149,5 +150,88 @@ class MainActivity : Activity() {
         try { socket?.close() } catch (_: Exception) {}
         io.shutdownNow()
         super.onDestroy()
+    }
+}
+
+data class JoshUiState(
+    val connection: String = "DISCONNECTED",
+    val node: String = "OVN-002",
+    val codename: String = "JOSH",
+    val mode: String = "--",
+    val surveyAvailable: Boolean = false,
+    val face: String = "(◕‿‿◕)",
+    val networks: Int = 0,
+    val clients: Int = 0,
+    val captures: Int = 0,
+    val channel: String = "--",
+    val battery: String = "--",
+    val temperature: String = "--",
+    val message: String = "Waiting for Josh…",
+    val raw: String = ""
+)
+
+@Composable
+private fun JoshScreen(
+    state: JoshUiState,
+    onConnect: () -> Unit,
+    onRefresh: () -> Unit,
+    onDoctor: () -> Unit,
+    onCheckUpdate: () -> Unit
+) {
+    Scaffold { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .padding(18.dp)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("OVN-002 • JOSH", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text("HEIMDALL COMPANION", fontSize = 14.sp)
+            Spacer(Modifier.height(8.dp))
+            AssistChip(
+                onClick = onConnect,
+                label = { Text("BLUETOOTH: ${state.connection}") }
+            )
+
+            Spacer(Modifier.height(24.dp))
+            Text(state.face, fontSize = 44.sp, textAlign = TextAlign.Center)
+            Text(state.message, fontSize = 16.sp, textAlign = TextAlign.Center)
+            Text("MODE: ${state.mode}", fontWeight = FontWeight.Bold)
+
+            Spacer(Modifier.height(20.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                Metric("NET", state.networks.toString())
+                Metric("CLI", state.clients.toString())
+                Metric("CAP", state.captures.toString())
+                Metric("CH", state.channel)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                Metric("BAT", state.battery)
+                Metric("TEMP", state.temperature)
+            }
+
+            Spacer(Modifier.height(20.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onRefresh, modifier = Modifier.weight(1f)) { Text("REFRESH") }
+                Button(onClick = onDoctor, modifier = Modifier.weight(1f)) { Text("DOCTOR") }
+            }
+            Button(onClick = onCheckUpdate, modifier = Modifier.fillMaxWidth()) { Text("CHECK UPDATE") }
+
+            Spacer(Modifier.height(18.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(10.dp))
+            Text("Bluetooth protocol response", fontWeight = FontWeight.Bold)
+            Text(state.raw.ifBlank { "No data yet" }, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun Metric(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(label, fontSize = 11.sp)
     }
 }
